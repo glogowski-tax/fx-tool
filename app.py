@@ -75,18 +75,27 @@ def parse_date_value(val) -> date | None:
     return None
 
 
-def process_workbook(wb, sheet_name: str, col_idx: int, source: str, progress_bar):
-    """Przetwarza arkusz — wstawia kolumnę z kursami."""
+def process_workbook(wb, sheet_name: str, col_idx: int, source: str, amount_col_idx: int | None, progress_bar):
+    """Przetwarza arkusz — wstawia kolumnę z kursami i opcjonalnie kolumnę PLN przeliczone."""
     ws = wb[sheet_name]
     insert_col = col_idx + 1
 
+    # Wstaw kolumnę z kursem
     ws.insert_cols(insert_col)
+    source_label = "kurs NBP" if source == "NBP" else "kurs EBC"
+    ws.cell(row=1, column=insert_col, value=source_label)
 
-    # Nagłówek nowej kolumny
-    source_label = "NBP" if source == "NBP" else "ECB"
-    ws.cell(row=1, column=insert_col, value=f"Kurs EUR/PLN ({source_label})")
+    # Wstaw kolumnę PLN przeliczone (jeśli wybrano kolumnę z kwotami)
+    pln_col = None
+    if amount_col_idx is not None:
+        pln_col = insert_col + 1
+        ws.insert_cols(pln_col)
+        ws.cell(row=1, column=pln_col, value="PLN przeliczone")
+        # Skoryguj indeks kolumny kwot jeśli jest za wstawionymi kolumnami
+        if amount_col_idx >= insert_col:
+            amount_col_idx += 2  # przesunięcie o 2 nowe kolumny
 
-    total_rows = ws.max_row - 1  # pomijamy nagłówek
+    total_rows = ws.max_row - 1
     if total_rows <= 0:
         return wb
 
@@ -119,10 +128,22 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, progress_ba
             rate, rate_date = find_previous_rate(parsed_date, all_rates)
             if rate is not None:
                 ws.cell(row=row_num, column=insert_col, value=rate)
+                # Przelicz kwotę na PLN
+                if pln_col and amount_col_idx:
+                    amount = ws.cell(row=row_num, column=amount_col_idx).value
+                    if isinstance(amount, (int, float)):
+                        pln_value = round(amount * rate)
+                        ws.cell(row=row_num, column=pln_col, value=pln_value)
+                    else:
+                        ws.cell(row=row_num, column=pln_col, value="Brak kwoty")
             else:
                 ws.cell(row=row_num, column=insert_col, value="Brak kursu")
+                if pln_col:
+                    ws.cell(row=row_num, column=pln_col, value="Brak kursu")
         else:
             ws.cell(row=row_num, column=insert_col, value="Błędna data")
+            if pln_col:
+                ws.cell(row=row_num, column=pln_col, value="Błędna data")
 
         progress_bar.progress(0.3 + 0.7 * (i + 1) / total_rows)
 
@@ -168,7 +189,7 @@ if uploaded_file is not None:
     st.dataframe(preview_data, use_container_width=True)
 
     # Wybór kolumny z datami
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         date_column = st.selectbox("Wskaż kolumnę z datami", headers)
@@ -177,17 +198,26 @@ if uploaded_file is not None:
     with col2:
         source = st.radio("Źródło kursu", ["NBP", "ECB"], horizontal=True)
 
+    with col3:
+        amount_options = ["— nie przeliczaj —"] + headers
+        amount_column = st.selectbox("Kolumna z kwotami (EUR)", amount_options)
+        amount_col_idx = headers.index(amount_column) + 1 if amount_column != "— nie przeliczaj —" else None
+
     # Info
-    st.info(
+    source_label = "NBP" if source == "NBP" else "EBC"
+    info_text = (
         f"Kurs EUR/PLN z **ostatniego dnia roboczego przed datą** w kolumnie **\"{date_column}\"** "
-        f"zostanie pobrany z **{source}** i wstawiony w nowej kolumnie obok."
+        f"zostanie pobrany z **{source_label}** i wstawiony w nowej kolumnie obok."
     )
+    if amount_col_idx:
+        info_text += f"\n\nKwoty z kolumny **\"{amount_column}\"** zostaną przeliczone na PLN (zaokrąglone do pełnych złotych)."
+    st.info(info_text)
 
     # Przycisk generowania
     if st.button("Pobierz kursy i generuj plik", type="primary"):
         with st.spinner("Pobieram kursy walut..."):
             progress = st.progress(0)
-            wb = process_workbook(wb, sheet_name, col_idx, source, progress)
+            wb = process_workbook(wb, sheet_name, col_idx, source, amount_col_idx, progress)
 
         st.success("Gotowe! Kursy zostały dodane.")
 
