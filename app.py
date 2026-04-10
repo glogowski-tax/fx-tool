@@ -140,7 +140,7 @@ st.markdown("Załaduj plik Excel, wskaż kolumnę z datami, a aplikacja wstawi k
 uploaded_file = st.file_uploader("Wybierz plik Excel", type=["xlsx"])
 
 if uploaded_file is not None:
-    wb = openpyxl.load_workbook(BytesIO(uploaded_file.read()))
+    wb = openpyxl.load_workbook(BytesIO(uploaded_file.read()), data_only=False, rich_text=False)
 
     # Wybór arkusza
     sheet_names = wb.sheetnames
@@ -201,5 +201,5 @@ if uploaded_file is not None:
             label="Pobierz plik Excel z kursami",
             data=output,
             file_name=f"{original_name}_z_kursami.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.officml"
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
