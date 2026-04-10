@@ -187,7 +187,8 @@ st.markdown("Załaduj plik Excel, wskaż kolumnę z datami, a aplikacja wstawi k
 uploaded_file = st.file_uploader("Wybierz plik Excel", type=["xlsx"])
 
 if uploaded_file is not None:
-    wb = openpyxl.load_workbook(BytesIO(uploaded_file.read()), data_only=False, rich_text=False)
+    file_bytes = BytesIO(uploaded_file.read())
+    wb = openpyxl.load_workbook(file_bytes, data_only=True, rich_text=False)
 
     # Wybór arkusza
     sheet_names = wb.sheetnames
