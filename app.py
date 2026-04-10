@@ -61,10 +61,10 @@ def find_previous_rate(target_date: date, all_rates: dict[date, float]) -> tuple
 
 def parse_date_value(val) -> date | None:
     """Próbuje sparsować wartość komórki jako datę."""
-    if isinstance(val, date):
-        return val
     if hasattr(val, "date"):  # datetime
         return val.date()
+    if isinstance(val, date):
+        return val
     if isinstance(val, str):
         for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y", "%d-%m-%Y"):
             try:
