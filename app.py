@@ -183,6 +183,8 @@ CURRENCIES = {
 st.title("FX Tool — Kursy walut do Excel")
 st.markdown("Załaduj plik Excel, wskaż kolumnę z datami, a aplikacja wstawi kurs wybranej waluty/PLN z dnia poprzedzającego.")
 
+st.warning("Plik wyjściowy zawiera wartości zamiast formuł. Oryginalny plik nie jest modyfikowany.")
+
 # Upload pliku
 uploaded_file = st.file_uploader("Wybierz plik Excel", type=["xlsx"])
 
