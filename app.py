@@ -1,6 +1,7 @@
 import streamlit as st
 import openpyxl
 from openpyxl.utils import get_column_letter
+from openpyxl.utils.cell import range_boundaries
 from openpyxl.styles import PatternFill, Font
 import requests
 from datetime import date, timedelta
@@ -80,14 +81,41 @@ def parse_date_value(val) -> date | None:
     return None
 
 
+def update_table_refs(ws, insert_col: int, col_name: str = ""):
+    """Aktualizuje zakresy i kolumny tabel strukturalnych po wstawieniu kolumny."""
+    from openpyxl.worksheet.table import TableColumn
+    for table in ws.tables.values():
+        min_col, min_row, max_col, max_row = range_boundaries(table.ref)
+        if insert_col > max_col:
+            continue
+        # Pozycja wstawienia względem tabeli (0-based)
+        insert_pos = insert_col - min_col
+        if insert_col < min_col:
+            min_col += 1
+            # Kolumna wstawiona przed tabelą — nie dodajemy kolumny do definicji
+        else:
+            # Kolumna wstawiona wewnątrz tabeli — dodaj do tableColumns
+            new_tc = TableColumn(id=max_col - min_col + 2, name=col_name or f"Column{max_col + 1}")
+            cols = list(table.tableColumns)
+            cols.insert(insert_pos, new_tc)
+            # Przenumeruj ID kolumn
+            for i, tc in enumerate(cols):
+                tc.id = i + 1
+            table.tableColumns = cols
+        max_col += 1
+        table.ref = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{max_row}"
+
+
 def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: str, amount_col_idx: int | None, progress_bar):
     """Przetwarza arkusz — wstawia kolumny z kursami obok kolumny dat."""
     ws = wb[sheet_name]
 
     # Wstaw kolumnę z kursem zaraz po kolumnie z datami
     rate_col = col_idx + 1
-    ws.insert_cols(rate_col)
     source_label = "kurs NBP" if source == "NBP" else "kurs EBC"
+    rate_col_name = f"{source_label} {currency}/PLN"
+    ws.insert_cols(rate_col)
+    update_table_refs(ws, rate_col, rate_col_name)
     header_cell = ws.cell(row=1, column=rate_col, value=f"{source_label} {currency}/PLN")
     header_cell.fill = HIGHLIGHT_HEADER
     header_cell.font = HEADER_FONT
@@ -101,6 +129,7 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: s
             amount_col_idx += 1
         pln_col = rate_col + 1
         ws.insert_cols(pln_col)
+        update_table_refs(ws, pln_col, "PLN przeliczone")
         pln_header = ws.cell(row=1, column=pln_col, value="PLN przeliczone")
         pln_header.fill = HIGHLIGHT_HEADER
         pln_header.font = HEADER_FONT
