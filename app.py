@@ -6,9 +6,9 @@ from datetime import date, timedelta
 from io import BytesIO
 
 
-def fetch_nbp_rates(date_from: date, date_to: date) -> dict[date, float]:
-    """Pobiera wszystkie kursy EUR/PLN z NBP w podanym zakresie dat (jedno zapytanie)."""
-    url = f"https://api.nbp.pl/api/exchangerates/rates/a/eur/{date_from}/{date_to}/?format=json"
+def fetch_nbp_rates(date_from: date, date_to: date, currency: str = "eur") -> dict[date, float]:
+    """Pobiera wszystkie kursy waluty/PLN z NBP w podanym zakresie dat (jedno zapytanie)."""
+    url = f"https://api.nbp.pl/api/exchangerates/rates/a/{currency.lower()}/{date_from}/{date_to}/?format=json"
     try:
         resp = requests.get(url, timeout=30)
         if resp.status_code == 200:
@@ -75,7 +75,7 @@ def parse_date_value(val) -> date | None:
     return None
 
 
-def process_workbook(wb, sheet_name: str, col_idx: int, source: str, amount_col_idx: int | None, progress_bar):
+def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: str, amount_col_idx: int | None, progress_bar):
     """Przetwarza arkusz — wstawia kolumnę z kursami i opcjonalnie kolumnę PLN przeliczone."""
     ws = wb[sheet_name]
     insert_col = col_idx + 1
@@ -83,7 +83,7 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, amount_col_
     # Wstaw kolumnę z kursem
     ws.insert_cols(insert_col)
     source_label = "kurs NBP" if source == "NBP" else "kurs EBC"
-    ws.cell(row=1, column=insert_col, value=source_label)
+    ws.cell(row=1, column=insert_col, value=f"{source_label} {currency}/PLN")
 
     # Wstaw kolumnę PLN przeliczone (jeśli wybrano kolumnę z kwotami)
     pln_col = None
@@ -112,8 +112,10 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, amount_col_
     if all_dates:
         date_from = min(all_dates) - timedelta(days=15)
         date_to = max(all_dates)
-        fetch_rates = fetch_nbp_rates if source == "NBP" else fetch_ecb_rates
-        all_rates = fetch_rates(date_from, date_to)
+        if source == "NBP":
+            all_rates = fetch_nbp_rates(date_from, date_to, currency)
+        else:
+            all_rates = fetch_ecb_rates(date_from, date_to)
     else:
         all_rates = {}
 
@@ -154,8 +156,22 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, amount_col_
 
 st.set_page_config(page_title="FX Tool — Kursy walut", page_icon="💱", layout="wide")
 
+CURRENCIES = {
+    "EUR": "euro", "USD": "dolar amerykański", "GBP": "funt szterling",
+    "CHF": "frank szwajcarski", "CZK": "korona czeska", "DKK": "korona duńska",
+    "NOK": "korona norweska", "SEK": "korona szwedzka", "HUF": "forint (Węgry)",
+    "RON": "lej rumuński", "UAH": "hrywna (Ukraina)", "TRY": "lira turecka",
+    "CAD": "dolar kanadyjski", "AUD": "dolar australijski", "JPY": "jen (Japonia)",
+    "CNY": "yuan renminbi (Chiny)", "HKD": "dolar Hongkongu", "SGD": "dolar singapurski",
+    "NZD": "dolar nowozelandzki", "MXN": "peso meksykańskie", "BRL": "real (Brazylia)",
+    "ZAR": "rand (RPA)", "KRW": "won (Korea Płd.)", "INR": "rupia indyjska",
+    "ILS": "nowy izraelski szekel", "THB": "bat (Tajlandia)", "PHP": "peso filipińskie",
+    "IDR": "rupia indonezyjska", "MYR": "ringgit (Malezja)", "CLP": "peso chilijskie",
+    "ISK": "korona islandzka", "XDR": "SDR (MFW)",
+}
+
 st.title("FX Tool — Kursy walut do Excel")
-st.markdown("Załaduj plik Excel, wskaż kolumnę z datami, a aplikacja wstawi kurs EUR/PLN z dnia poprzedzającego.")
+st.markdown("Załaduj plik Excel, wskaż kolumnę z datami, a aplikacja wstawi kurs wybranej waluty/PLN z dnia poprzedzającego.")
 
 # Upload pliku
 uploaded_file = st.file_uploader("Wybierz plik Excel", type=["xlsx"])
@@ -188,25 +204,36 @@ if uploaded_file is not None:
 
     st.dataframe(preview_data, use_container_width=True)
 
-    # Wybór kolumny z datami
-    col1, col2, col3 = st.columns(3)
+    # Wybór parametrów
+    col1, col2 = st.columns(2)
 
     with col1:
         date_column = st.selectbox("Wskaż kolumnę z datami", headers)
         col_idx = headers.index(date_column) + 1
 
     with col2:
-        source = st.radio("Źródło kursu", ["NBP", "ECB"], horizontal=True)
+        currency_options = [f"{code} — {name}" for code, name in CURRENCIES.items()]
+        currency_choice = st.selectbox("Waluta", currency_options)
+        currency = currency_choice.split(" — ")[0]
+
+    col3, col4 = st.columns(2)
 
     with col3:
+        if currency == "EUR":
+            source = st.radio("Źródło kursu", ["NBP", "ECB"], horizontal=True)
+        else:
+            source = "NBP"
+            st.info("Źródło: **NBP** (EBC dostępne tylko dla EUR)")
+
+    with col4:
         amount_options = ["— nie przeliczaj —"] + headers
-        amount_column = st.selectbox("Kolumna z kwotami (EUR)", amount_options)
+        amount_column = st.selectbox(f"Kolumna z kwotami ({currency})", amount_options)
         amount_col_idx = headers.index(amount_column) + 1 if amount_column != "— nie przeliczaj —" else None
 
     # Info
     source_label = "NBP" if source == "NBP" else "EBC"
     info_text = (
-        f"Kurs EUR/PLN z **ostatniego dnia roboczego przed datą** w kolumnie **\"{date_column}\"** "
+        f"Kurs **{currency}/PLN** z **ostatniego dnia roboczego przed datą** w kolumnie **\"{date_column}\"** "
         f"zostanie pobrany z **{source_label}** i wstawiony w nowej kolumnie obok."
     )
     if amount_col_idx:
@@ -217,7 +244,7 @@ if uploaded_file is not None:
     if st.button("Pobierz kursy i generuj plik", type="primary"):
         with st.spinner("Pobieram kursy walut..."):
             progress = st.progress(0)
-            wb = process_workbook(wb, sheet_name, col_idx, source, amount_col_idx, progress)
+            wb = process_workbook(wb, sheet_name, col_idx, source, currency, amount_col_idx, progress)
 
         st.success("Gotowe! Kursy zostały dodane.")
 
