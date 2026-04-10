@@ -81,11 +81,12 @@ def parse_date_value(val) -> date | None:
 
 
 def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: str, amount_col_idx: int | None, progress_bar):
-    """Przetwarza arkusz — dodaje kolumny z kursami na końcu (nie psuje formuł)."""
+    """Przetwarza arkusz — wstawia kolumny z kursami obok kolumny dat."""
     ws = wb[sheet_name]
 
-    # Nowe kolumny na końcu arkusza (nie ruszamy istniejących)
-    rate_col = ws.max_column + 1
+    # Wstaw kolumnę z kursem zaraz po kolumnie z datami
+    rate_col = col_idx + 1
+    ws.insert_cols(rate_col)
     source_label = "kurs NBP" if source == "NBP" else "kurs EBC"
     header_cell = ws.cell(row=1, column=rate_col, value=f"{source_label} {currency}/PLN")
     header_cell.fill = HIGHLIGHT_HEADER
@@ -95,11 +96,18 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: s
 
     pln_col = None
     if amount_col_idx is not None:
+        # Skoryguj indeks kolumny kwot jeśli jest za wstawioną kolumną
+        if amount_col_idx >= rate_col:
+            amount_col_idx += 1
         pln_col = rate_col + 1
+        ws.insert_cols(pln_col)
         pln_header = ws.cell(row=1, column=pln_col, value="PLN przeliczone")
         pln_header.fill = HIGHLIGHT_HEADER
         pln_header.font = HEADER_FONT
         new_cols.append(pln_col)
+        # Skoryguj ponownie jeśli kolumna kwot jest za drugą wstawioną
+        if amount_col_idx >= pln_col:
+            amount_col_idx += 1
 
     total_rows = ws.max_row - 1
     if total_rows <= 0:
