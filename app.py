@@ -1,9 +1,14 @@
 import streamlit as st
 import openpyxl
 from openpyxl.utils import get_column_letter
+from openpyxl.styles import PatternFill, Font
 import requests
 from datetime import date, timedelta
 from io import BytesIO
+
+HIGHLIGHT_FILL = PatternFill(start_color="DAEEF3", end_color="DAEEF3", fill_type="solid")
+HIGHLIGHT_HEADER = PatternFill(start_color="4BACC6", end_color="4BACC6", fill_type="solid")
+HEADER_FONT = Font(bold=True, color="FFFFFF")
 
 
 def fetch_nbp_rates(date_from: date, date_to: date, currency: str = "eur") -> dict[date, float]:
@@ -83,14 +88,22 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: s
     # Wstaw kolumnę z kursem
     ws.insert_cols(insert_col)
     source_label = "kurs NBP" if source == "NBP" else "kurs EBC"
-    ws.cell(row=1, column=insert_col, value=f"{source_label} {currency}/PLN")
+    header_cell = ws.cell(row=1, column=insert_col, value=f"{source_label} {currency}/PLN")
+    header_cell.fill = HIGHLIGHT_HEADER
+    header_cell.font = HEADER_FONT
+
+    # Lista nowych kolumn do pokolorowania
+    new_cols = [insert_col]
 
     # Wstaw kolumnę PLN przeliczone (jeśli wybrano kolumnę z kwotami)
     pln_col = None
     if amount_col_idx is not None:
         pln_col = insert_col + 1
         ws.insert_cols(pln_col)
-        ws.cell(row=1, column=pln_col, value="PLN przeliczone")
+        pln_header = ws.cell(row=1, column=pln_col, value="PLN przeliczone")
+        pln_header.fill = HIGHLIGHT_HEADER
+        pln_header.font = HEADER_FONT
+        new_cols.append(pln_col)
         # Skoryguj indeks kolumny kwot jeśli jest za wstawionymi kolumnami
         if amount_col_idx >= insert_col:
             amount_col_idx += 2  # przesunięcie o 2 nowe kolumny
@@ -146,6 +159,10 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: s
             ws.cell(row=row_num, column=insert_col, value="Błędna data")
             if pln_col:
                 ws.cell(row=row_num, column=pln_col, value="Błędna data")
+
+        # Highlight nowych kolumn
+        for c in new_cols:
+            ws.cell(row=row_num, column=c).fill = HIGHLIGHT_FILL
 
         progress_bar.progress(0.3 + 0.7 * (i + 1) / total_rows)
 
