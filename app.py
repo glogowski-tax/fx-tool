@@ -248,6 +248,9 @@ if uploaded_file is not None:
 
         st.success("Gotowe! Kursy zostały dodane.")
 
+        # Usuń zewnętrzne odnośniki (powodują błędy przy otwieraniu w Excelu)
+        wb._external_links = []
+
         # Zapis do bufora i przycisk pobierania
         output = BytesIO()
         wb.save(output)
