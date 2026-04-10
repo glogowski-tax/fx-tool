@@ -81,32 +81,25 @@ def parse_date_value(val) -> date | None:
 
 
 def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: str, amount_col_idx: int | None, progress_bar):
-    """Przetwarza arkusz — wstawia kolumnę z kursami i opcjonalnie kolumnę PLN przeliczone."""
+    """Przetwarza arkusz — dodaje kolumny z kursami na końcu (nie psuje formuł)."""
     ws = wb[sheet_name]
-    insert_col = col_idx + 1
 
-    # Wstaw kolumnę z kursem
-    ws.insert_cols(insert_col)
+    # Nowe kolumny na końcu arkusza (nie ruszamy istniejących)
+    rate_col = ws.max_column + 1
     source_label = "kurs NBP" if source == "NBP" else "kurs EBC"
-    header_cell = ws.cell(row=1, column=insert_col, value=f"{source_label} {currency}/PLN")
+    header_cell = ws.cell(row=1, column=rate_col, value=f"{source_label} {currency}/PLN")
     header_cell.fill = HIGHLIGHT_HEADER
     header_cell.font = HEADER_FONT
 
-    # Lista nowych kolumn do pokolorowania
-    new_cols = [insert_col]
+    new_cols = [rate_col]
 
-    # Wstaw kolumnę PLN przeliczone (jeśli wybrano kolumnę z kwotami)
     pln_col = None
     if amount_col_idx is not None:
-        pln_col = insert_col + 1
-        ws.insert_cols(pln_col)
+        pln_col = rate_col + 1
         pln_header = ws.cell(row=1, column=pln_col, value="PLN przeliczone")
         pln_header.fill = HIGHLIGHT_HEADER
         pln_header.font = HEADER_FONT
         new_cols.append(pln_col)
-        # Skoryguj indeks kolumny kwot jeśli jest za wstawionymi kolumnami
-        if amount_col_idx >= insert_col:
-            amount_col_idx += 2  # przesunięcie o 2 nowe kolumny
 
     total_rows = ws.max_row - 1
     if total_rows <= 0:
@@ -142,7 +135,7 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: s
         if parsed_date:
             rate, rate_date = find_previous_rate(parsed_date, all_rates)
             if rate is not None:
-                ws.cell(row=row_num, column=insert_col, value=rate)
+                ws.cell(row=row_num, column=rate_col, value=rate)
                 # Przelicz kwotę na PLN
                 if pln_col and amount_col_idx:
                     amount = ws.cell(row=row_num, column=amount_col_idx).value
@@ -152,11 +145,11 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: s
                     else:
                         ws.cell(row=row_num, column=pln_col, value="Brak kwoty")
             else:
-                ws.cell(row=row_num, column=insert_col, value="Brak kursu")
+                ws.cell(row=row_num, column=rate_col, value="Brak kursu")
                 if pln_col:
                     ws.cell(row=row_num, column=pln_col, value="Brak kursu")
         else:
-            ws.cell(row=row_num, column=insert_col, value="Błędna data")
+            ws.cell(row=row_num, column=rate_col, value="Błędna data")
             if pln_col:
                 ws.cell(row=row_num, column=pln_col, value="Błędna data")
 
