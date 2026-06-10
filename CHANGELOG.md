@@ -1,3 +1,6 @@
+## 2026-06-10 (7)
+- Korekta CN: zły zamiennik (nadal nieaktualny / błędny format) NIE jest zapisywany — w komórce zostaje oryginalny kod i jego status. Tylko poprawny zamiennik podmienia kod (status "poprawiony").
+
 # CHANGELOG — FX_TOOL
 
 ## 2026-06-10 (6)

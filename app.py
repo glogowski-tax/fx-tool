@@ -119,15 +119,17 @@ def cn_outcome(original, replacement, valid_cn: frozenset):
     - poprawny/pusty oryginał      -> (OK/None, oryginał)
     - niepoprawny bez zamiennika   -> (status oryginału, oryginał)
     - niepoprawny + zamiennik OK    -> ('poprawiony', zamiennik)
-    - niepoprawny + zamiennik zły   -> (status zamiennika, zamiennik)"""
+    - niepoprawny + zamiennik zły   -> (status zamiennika, ORYGINAŁ — złego zamiennika NIE zapisujemy)"""
     status = cn_status(normalize_cn(original), valid_cn)
     if status in ("OK", None):
         return status, original
     if replacement is None or str(replacement).strip() == "":
         return status, original
     repl = str(replacement).strip()
-    repl_status = cn_status(normalize_cn(repl), valid_cn)
-    return ("poprawiony" if repl_status == "OK" else repl_status), repl
+    if cn_status(normalize_cn(repl), valid_cn) == "OK":
+        return "poprawiony", repl
+    # zły zamiennik: zostaje oryginał i jego status (nie zapisujemy złego kodu)
+    return status, original
 
 
 def check_cn_code(val, valid_cn: frozenset):
