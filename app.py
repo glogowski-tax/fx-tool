@@ -187,7 +187,7 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: s
                     if isinstance(amount, (int, float)):
                         pln_value = round(amount * rate, 2)
                         pln_cell = ws.cell(row=row_num, column=pln_col, value=pln_value)
-                        pln_cell.number_format = "#,##0.00"
+                        pln_cell.number_format = "0.00"
                     else:
                         ws.cell(row=row_num, column=pln_col, value="Brak kwoty")
             else:
