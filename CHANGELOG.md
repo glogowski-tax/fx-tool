@@ -1,7 +1,7 @@
+# CHANGELOG — FX_TOOL
+
 ## 2026-06-10 (7)
 - Korekta CN: zły zamiennik (nadal nieaktualny / błędny format) NIE jest zapisywany — w komórce zostaje oryginalny kod i jego status. Tylko poprawny zamiennik podmienia kod (status "poprawiony").
-
-# CHANGELOG — FX_TOOL
 
 ## 2026-06-10 (6)
 - **Interaktywna korekta kodów CN.** Po wskazaniu kolumny CN apka od razu listuje niepoprawne kody (z liczbą wystąpień). Obok każdego pole na kod zastępczy — wpisany kod podmienia błędny w kolumnie CN. Przycisk „🔁 Sprawdź ponownie kody" przelicza statusy na żywo; obok „Pozostało niepoprawnych / poprawionych". Drugą opcją jest zwykły zapis pliku. Status CN po operacji: `OK` / `nieaktualny` (niepoprawiony lub poprawiony na inny zły) / `poprawiony` / `błędny format`.
