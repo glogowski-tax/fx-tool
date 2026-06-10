@@ -386,9 +386,9 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: s
                 if pln_col and amount_col_idx:
                     amount = ws.cell(row=row_num, column=amount_col_idx).value
                     if isinstance(amount, (int, float)):
-                        pln_value = round(amount * rate, 2)
+                        pln_value = round(amount * rate)
                         pln_cell = ws.cell(row=row_num, column=pln_col, value=pln_value)
-                        pln_cell.number_format = "0.00"
+                        pln_cell.number_format = "0"
                     else:
                         ws.cell(row=row_num, column=pln_col, value="Brak kwoty")
             else:
@@ -623,7 +623,7 @@ if uploaded_file is not None:
         f"zostanie pobrany z **{source_label}** i wstawiony w nowej kolumnie obok."
     )
     if amount_col_idx:
-        info_text += f"\n\nKwoty z kolumny **\"{amount_column}\"** zostaną przeliczone na PLN (zaokrąglone do dwóch miejsc po przecinku)."
+        info_text += f"\n\nKwoty z kolumny **\"{amount_column}\"** zostaną przeliczone na PLN (zaokrąglone do pełnych złotych)."
     if country_col_idx:
         info_text += f"\n\nKody krajów z kolumny **\"{country_column}\"** zostaną znormalizowane (3-literowe → 2-literowe, ISO 3166) w nowej kolumnie obok."
     if vat_col_idx:

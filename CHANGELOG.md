@@ -1,5 +1,8 @@
 # CHANGELOG — FX_TOOL
 
+## 2026-06-10 (8)
+- Przeliczanie PLN: powrót do **pełnych złotych** (round bez miejsc po przecinku), format komórki `0` (bez zer po przecinku, bez separatora tysięcy). Cofnięcie zmiany z (1)/(2) na życzenie.
+
 ## 2026-06-10 (7)
 - Korekta CN: zły zamiennik (nadal nieaktualny / błędny format) NIE jest zapisywany — w komórce zostaje oryginalny kod i jego status. Tylko poprawny zamiennik podmienia kod (status "poprawiony").
 
