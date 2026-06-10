@@ -185,8 +185,9 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: s
                 if pln_col and amount_col_idx:
                     amount = ws.cell(row=row_num, column=amount_col_idx).value
                     if isinstance(amount, (int, float)):
-                        pln_value = round(amount * rate)
-                        ws.cell(row=row_num, column=pln_col, value=pln_value)
+                        pln_value = round(amount * rate, 2)
+                        pln_cell = ws.cell(row=row_num, column=pln_col, value=pln_value)
+                        pln_cell.number_format = "#,##0.00"
                     else:
                         ws.cell(row=row_num, column=pln_col, value="Brak kwoty")
             else:
@@ -295,7 +296,7 @@ if uploaded_file is not None:
         f"zostanie pobrany z **{source_label}** i wstawiony w nowej kolumnie obok."
     )
     if amount_col_idx:
-        info_text += f"\n\nKwoty z kolumny **\"{amount_column}\"** zostaną przeliczone na PLN (zaokrąglone do pełnych złotych)."
+        info_text += f"\n\nKwoty z kolumny **\"{amount_column}\"** zostaną przeliczone na PLN (zaokrąglone do dwóch miejsc po przecinku)."
     st.info(info_text)
 
     # Przycisk generowania
