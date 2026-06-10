@@ -1,5 +1,10 @@
 # CHANGELOG — FX_TOOL
 
+## 2026-06-10 (4)
+- Nowa opcja: **kod kraju z numeru VAT** — z kolumny z numerami VAT kontrahentów wyciągany 2-literowy prefiks kraju do nowej kolumny obok (`... (kod kraju)`). `EL` (prefiks VAT Grecji) → `GR`; pozostałe zgodne z ISO 3166. `XI` (Irlandia Płn.) zachowane. Brak czytelnego prefiksu → pusta komórka. Kolumna VAT auto-wykrywana (nazwa zawiera „vat").
+- **Front-end:** opcje specyficzne dla klienta **Fluiconnecto** (normalizacja kraju, kod kraju z VAT, ucinanie wielolinijkowego tekstu) zgrupowane w wyróżnionej, obramowanej sekcji „🔶 Obróbka dla Fluiconnecto" — operator od razu widzi, że to obróbka kliencka.
+- Refaktor: kolumny pochodne (kraj, VAT) wstawiane przez wspólny helper z bezpieczną korektą wszystkich indeksów (eliminuje błędy przesunięcia przy wielu wstawianych kolumnach).
+
 ## 2026-06-10 (3)
 - Nowa opcja (checkbox, domyślnie włączony): **ucinanie wielolinijkowego tekstu** do pierwszej linii we wszystkich komórkach arkusza. Komórki ze złamaniem linii (Alt+Enter) skracane do pierwszej linii; jednolinijkowe bez zmian. Przydatne do Intrastat.
 

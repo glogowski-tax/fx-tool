@@ -76,6 +76,18 @@ def first_line_only(val):
     return val
 
 
+def extract_vat_country(val):
+    """Wyciąga 2-literowy kod kraju z numeru VAT (np. 'DE123456789' -> 'DE').
+    EL (prefiks VAT Grecji) zamienia na GR. Pozostałe prefiksy zgodne z ISO 3166.
+    Brak czytelnego prefiksu (np. sam numer) -> None (pusta komórka)."""
+    if val is None:
+        return None
+    prefix = str(val).strip().upper()[:2]
+    if len(prefix) == 2 and prefix.isalpha():
+        return "GR" if prefix == "EL" else prefix
+    return None
+
+
 def fetch_nbp_rates(date_from: date, date_to: date, currency: str = "eur") -> dict[date, float]:
     """Pobiera wszystkie kursy waluty/PLN z NBP w podanym zakresie dat (jedno zapytanie)."""
     url = f"https://api.nbp.pl/api/exchangerates/rates/a/{currency.lower()}/{date_from}/{date_to}/?format=json"
@@ -178,7 +190,7 @@ def update_table_refs(ws, insert_col: int, col_name: str = ""):
         table.ref = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{max_row}"
 
 
-def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: str, amount_col_idx: int | None, progress_bar, country_col_idx: int | None = None, trim_multiline: bool = False):
+def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: str, amount_col_idx: int | None, progress_bar, country_col_idx: int | None = None, trim_multiline: bool = False, vat_col_idx: int | None = None):
     """Przetwarza arkusz — wstawia kolumny z kursami obok kolumny dat."""
     ws = wb[sheet_name]
 
@@ -189,29 +201,37 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: s
             for cell in row:
                 cell.value = first_line_only(cell.value)
 
-    # Normalizacja kodów krajów (alpha-3 -> alpha-2) w nowej kolumnie obok.
-    # Robimy to PRZED wstawieniem kolumn z kursami, żeby indeksy zgadzały się z nagłówkami.
-    if country_col_idx is not None:
-        # Wczytaj oryginalne kody i nagłówek zanim cokolwiek wstawimy
-        src_header = ws.cell(row=1, column=country_col_idx).value
-        country_src = {r: ws.cell(row=r, column=country_col_idx).value for r in range(2, ws.max_row + 1)}
+    # Kolumny pochodne (kod kraju ISO-2, kod kraju z VAT) wstawiamy PRZED kolumnami
+    # z kursami. Wspólny helper koryguje WSZYSTKIE śledzone indeksy po każdym
+    # wstawieniu — to eliminuje ciche błędy przesunięcia kolumn (4 wstawienia).
+    idx = {"date": col_idx, "amount": amount_col_idx, "country": country_col_idx, "vat": vat_col_idx}
 
-        country_out_col = country_col_idx + 1
-        ws.insert_cols(country_out_col)
-        out_header = f"{src_header} (ISO-2)" if src_header else "Kod kraju (ISO-2)"
-        update_table_refs(ws, country_out_col, out_header)
-        c_header = ws.cell(row=1, column=country_out_col, value=out_header)
-        c_header.fill = HIGHLIGHT_HEADER
-        c_header.font = HEADER_FONT
+    def insert_derived_column(src_key, transform, header_suffix, default_header):
+        src = idx[src_key]
+        if src is None:
+            return
+        src_header = ws.cell(row=1, column=src).value
+        values = {r: ws.cell(row=r, column=src).value for r in range(2, ws.max_row + 1)}
+        out_col = src + 1
+        ws.insert_cols(out_col)
+        out_header = f"{src_header} {header_suffix}" if src_header else default_header
+        update_table_refs(ws, out_col, out_header)
+        hc = ws.cell(row=1, column=out_col, value=out_header)
+        hc.fill = HIGHLIGHT_HEADER
+        hc.font = HEADER_FONT
         for r in range(2, ws.max_row + 1):
-            out_cell = ws.cell(row=r, column=country_out_col, value=normalize_country_code(country_src.get(r)))
-            out_cell.fill = HIGHLIGHT_FILL
+            oc = ws.cell(row=r, column=out_col, value=transform(values.get(r)))
+            oc.fill = HIGHLIGHT_FILL
+        # Korekta wszystkich indeksów na/za pozycją wstawienia
+        for k in idx:
+            if idx[k] is not None and idx[k] >= out_col:
+                idx[k] += 1
 
-        # Skoryguj indeksy w dół o wstawioną kolumnę
-        if col_idx >= country_out_col:
-            col_idx += 1
-        if amount_col_idx is not None and amount_col_idx >= country_out_col:
-            amount_col_idx += 1
+    insert_derived_column("country", normalize_country_code, "(ISO-2)", "Kod kraju (ISO-2)")
+    insert_derived_column("vat", extract_vat_country, "(kod kraju)", "Kod kraju z VAT")
+
+    col_idx = idx["date"]
+    amount_col_idx = idx["amount"]
 
     # Wstaw kolumnę z kursem zaraz po kolumnie z datami
     rate_col = col_idx + 1
@@ -384,25 +404,48 @@ if uploaded_file is not None:
         amount_column = st.selectbox(f"Kolumna z kwotami ({currency})", amount_options)
         amount_col_idx = headers.index(amount_column) + 1 if amount_column != "— nie przeliczaj —" else None
 
-    col5, _ = st.columns(2)
-    with col5:
-        country_options = ["— nie normalizuj —"] + headers
-        # Auto-wykryj kolumnę OrigCountryRegionId (bez względu na wielkość liter)
-        default_idx = 0
-        for i, h in enumerate(headers):
-            if h.strip().lower() == "origcountryregionid":
-                default_idx = i + 1
-                break
-        country_column = st.selectbox(
-            "Kolumna z kodem kraju (alpha-3 → alpha-2)", country_options, index=default_idx
+    # ---- Sekcja specyficzna dla klienta: Fluiconnecto ----
+    st.markdown("")
+    with st.container(border=True):
+        st.markdown("### :orange[🔶 Obróbka dla Fluiconnecto]")
+        st.caption(
+            "Operacje specyficzne dla klienta **Fluiconnecto**. "
+            "Włączaj tylko przy plikach tego klienta."
         )
-        country_col_idx = headers.index(country_column) + 1 if country_column != "— nie normalizuj —" else None
 
-    trim_multiline = st.checkbox(
-        "Utnij wielolinijkowy tekst do pierwszej linii (we wszystkich komórkach)",
-        value=True,
-        help="Komórki ze złamaniem linii (Alt+Enter) zostaną skrócone do pierwszej linii. Jednolinijkowe pozostają bez zmian.",
-    )
+        fc1, fc2 = st.columns(2)
+        with fc1:
+            country_options = ["— nie normalizuj —"] + headers
+            # Auto-wykryj kolumnę OrigCountryRegionId (bez względu na wielkość liter)
+            country_default = 0
+            for i, h in enumerate(headers):
+                if h.strip().lower() == "origcountryregionid":
+                    country_default = i + 1
+                    break
+            country_column = st.selectbox(
+                "Kolumna z kodem kraju (alpha-3 → alpha-2)", country_options, index=country_default
+            )
+            country_col_idx = headers.index(country_column) + 1 if country_column != "— nie normalizuj —" else None
+
+        with fc2:
+            vat_options = ["— nie wyciągaj —"] + headers
+            # Auto-wykryj kolumnę z VAT (nazwa zawiera "vat")
+            vat_default = 0
+            for i, h in enumerate(headers):
+                if "vat" in h.strip().lower():
+                    vat_default = i + 1
+                    break
+            vat_column = st.selectbox(
+                "Kolumna z numerem VAT → kod kraju", vat_options, index=vat_default,
+                help="Z numeru VAT zostanie wyciągnięty 2-literowy kod kraju (prefiks). EL (Grecja) → GR.",
+            )
+            vat_col_idx = headers.index(vat_column) + 1 if vat_column != "— nie wyciągaj —" else None
+
+        trim_multiline = st.checkbox(
+            "Utnij wielolinijkowy tekst do pierwszej linii (we wszystkich komórkach)",
+            value=True,
+            help="Komórki ze złamaniem linii (Alt+Enter) zostaną skrócone do pierwszej linii. Jednolinijkowe pozostają bez zmian.",
+        )
 
     # Info
     source_label = "NBP" if source == "NBP" else "EBC"
@@ -414,6 +457,8 @@ if uploaded_file is not None:
         info_text += f"\n\nKwoty z kolumny **\"{amount_column}\"** zostaną przeliczone na PLN (zaokrąglone do dwóch miejsc po przecinku)."
     if country_col_idx:
         info_text += f"\n\nKody krajów z kolumny **\"{country_column}\"** zostaną znormalizowane (3-literowe → 2-literowe, ISO 3166) w nowej kolumnie obok."
+    if vat_col_idx:
+        info_text += f"\n\nZ numerów VAT z kolumny **\"{vat_column}\"** zostanie wyciągnięty kod kraju (EL → GR) w nowej kolumnie obok."
     if trim_multiline:
         info_text += "\n\nWielolinijkowy tekst w komórkach zostanie skrócony do pierwszej linii."
     st.info(info_text)
@@ -422,7 +467,7 @@ if uploaded_file is not None:
     if st.button("Pobierz kursy i generuj plik", type="primary"):
         with st.spinner("Pobieram kursy walut..."):
             progress = st.progress(0)
-            wb = process_workbook(wb, sheet_name, col_idx, source, currency, amount_col_idx, progress, country_col_idx, trim_multiline)
+            wb = process_workbook(wb, sheet_name, col_idx, source, currency, amount_col_idx, progress, country_col_idx, trim_multiline, vat_col_idx)
 
         st.success("Gotowe! Kursy zostały dodane.")
 
