@@ -95,21 +95,44 @@ def load_cn_codes(year: int) -> frozenset:
     )
 
 
-def check_cn_code(val, valid_cn: frozenset):
-    """Sprawdza kod CN względem listy obowiązujących.
-    Zwraca: 'OK', 'nieaktualny', 'błędny format' lub None (pusta komórka)."""
-    if val is None or str(val).strip() == "":
-        return None
-    digits = re.sub(r"\D", "", str(val))
-    if not digits:
-        return None
-    # Excel gubi wiodące zero przy kodach z rozdziałów 01-09 (01012100 -> liczba 1012100).
-    # Kod CN zapisany jako liczba ma więc zawsze 7 lub 8 cyfr — 7-cyfrowy uzupełniamy.
+def normalize_cn(val) -> str:
+    """Kanoniczna postać kodu CN (8 cyfr jeśli się da). Excel gubi wiodące zero
+    przy kodach z rozdziałów 01-09 (01012100 -> liczba 1012100) — 7-cyfrowy uzupełniamy."""
+    digits = re.sub(r"\D", "", str(val)) if val is not None else ""
     if len(digits) == 7:
         digits = digits.zfill(8)
-    if len(digits) != 8:
+    return digits
+
+
+def cn_status(code: str, valid_cn: frozenset):
+    """Status kanonicznego kodu: 'OK' / 'nieaktualny' / 'błędny format' / None (pusty)."""
+    if not code:
+        return None
+    if len(code) != 8:
         return "błędny format"
-    return "OK" if digits in valid_cn else "nieaktualny"
+    return "OK" if code in valid_cn else "nieaktualny"
+
+
+def cn_outcome(original, replacement, valid_cn: frozenset):
+    """JEDYNE źródło prawdy dla decyzji o kodzie CN — używane i w UI, i przy zapisie pliku.
+    Zwraca (status, wartość_do_zapisania_w_komórce_CN):
+    - poprawny/pusty oryginał      -> (OK/None, oryginał)
+    - niepoprawny bez zamiennika   -> (status oryginału, oryginał)
+    - niepoprawny + zamiennik OK    -> ('poprawiony', zamiennik)
+    - niepoprawny + zamiennik zły   -> (status zamiennika, zamiennik)"""
+    status = cn_status(normalize_cn(original), valid_cn)
+    if status in ("OK", None):
+        return status, original
+    if replacement is None or str(replacement).strip() == "":
+        return status, original
+    repl = str(replacement).strip()
+    repl_status = cn_status(normalize_cn(repl), valid_cn)
+    return ("poprawiony" if repl_status == "OK" else repl_status), repl
+
+
+def check_cn_code(val, valid_cn: frozenset):
+    """Status pojedynczego kodu bez zamiennika (zachowane dla zgodności/testów)."""
+    return cn_outcome(val, None, valid_cn)[0]
 
 
 def extract_vat_country(val):
@@ -226,9 +249,10 @@ def update_table_refs(ws, insert_col: int, col_name: str = ""):
         table.ref = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{max_row}"
 
 
-def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: str, amount_col_idx: int | None, progress_bar, country_col_idx: int | None = None, trim_multiline: bool = False, vat_col_idx: int | None = None, cn_col_idx: int | None = None, valid_cn: frozenset = frozenset()):
+def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: str, amount_col_idx: int | None, progress_bar, country_col_idx: int | None = None, trim_multiline: bool = False, vat_col_idx: int | None = None, cn_col_idx: int | None = None, valid_cn: frozenset = frozenset(), cn_replacements: dict | None = None):
     """Przetwarza arkusz — wstawia kolumny z kursami obok kolumny dat."""
     ws = wb[sheet_name]
+    cn_replacements = cn_replacements or {}
 
     # Utnij wielolinijkowy tekst do pierwszej linii (przed wstawianiem kolumn).
     # Zmienia tylko komórki ze złamaniem linii (Alt+Enter), reszta bez zmian.
@@ -265,10 +289,30 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: s
 
     insert_derived_column("country", normalize_country_code, "(ISO-2)", "Kod kraju (ISO-2)")
     insert_derived_column("vat", extract_vat_country, "(kod kraju)", "Kod kraju z VAT")
-    insert_derived_column(
-        "cn", lambda v: check_cn_code(v, valid_cn),
-        f"(status CN {CN_EDITION_YEAR})", f"Status CN {CN_EDITION_YEAR}",
-    )
+
+    # CN: walidacja + ewentualna podmiana kodów. Specjalny blok (nie generyczny helper),
+    # bo poza nową kolumną ze statusem podmienia też kod w kolumnie ŹRÓDŁOWEJ.
+    if idx["cn"] is not None and valid_cn:
+        src = idx["cn"]
+        src_header = ws.cell(row=1, column=src).value
+        values = {r: ws.cell(row=r, column=src).value for r in range(2, ws.max_row + 1)}
+        out_col = src + 1
+        ws.insert_cols(out_col)
+        out_header = f"{src_header} (status CN {CN_EDITION_YEAR})" if src_header else f"Status CN {CN_EDITION_YEAR}"
+        update_table_refs(ws, out_col, out_header)
+        hc = ws.cell(row=1, column=out_col, value=out_header)
+        hc.fill = HIGHLIGHT_HEADER
+        hc.font = HEADER_FONT
+        for r in range(2, ws.max_row + 1):
+            original = values.get(r)
+            status, cell_value = cn_outcome(original, cn_replacements.get(normalize_cn(original)), valid_cn)
+            if cell_value != original:
+                ws.cell(row=r, column=src, value=cell_value)
+            sc = ws.cell(row=r, column=out_col, value=status)
+            sc.fill = HIGHLIGHT_FILL
+        for k in idx:
+            if idx[k] is not None and idx[k] >= out_col:
+                idx[k] += 1
 
     col_idx = idx["date"]
     amount_col_idx = idx["amount"]
@@ -397,7 +441,7 @@ st.warning("Plik wyjściowy zawiera wartości zamiast formuł. Oryginalny plik n
 uploaded_file = st.file_uploader("Wybierz plik Excel", type=["xlsx"])
 
 if uploaded_file is not None:
-    file_bytes = BytesIO(uploaded_file.read())
+    file_bytes = BytesIO(uploaded_file.getvalue())  # getvalue() odporne na wielokrotne przeładowania
     wb = openpyxl.load_workbook(file_bytes, data_only=True, rich_text=False)
 
     # Wybór arkusza
@@ -512,6 +556,64 @@ if uploaded_file is not None:
             help="Komórki ze złamaniem linii (Alt+Enter) zostaną skrócone do pierwszej linii. Jednolinijkowe pozostają bez zmian.",
         )
 
+    # ---- Interaktywna walidacja i korekta kodów CN ----
+    # Skanujemy ORYGINALNE wartości arkusza. Lista jest stabilna (kluczowana
+    # oryginalnym kodem), a status "→ po poprawce" liczy się na żywo z text_input.
+    cn_replacements = {}
+    if cn_col_idx and VALID_CN:
+        ws_scan = wb[sheet_name]
+        invalid = {}  # kanoniczny kod -> {"count", "status", "sample"}
+        for r in range(2, ws_scan.max_row + 1):
+            raw = ws_scan.cell(row=r, column=cn_col_idx).value
+            if raw is None or str(raw).strip() == "":
+                continue
+            code = normalize_cn(raw)
+            status = cn_status(code, VALID_CN)
+            if status not in ("OK", None):
+                entry = invalid.setdefault(code, {"count": 0, "status": status, "sample": raw})
+                entry["count"] += 1
+
+        if invalid:
+            with st.container(border=True):
+                st.markdown(f"### :red[⚠️ Niepoprawne kody CN: {len(invalid)}]")
+                st.caption(
+                    f"Wpisz kod zastępczy obok błędnego kodu — zastąpi go w pliku. "
+                    f"Następnie kliknij „🔁 Sprawdź ponownie kody” lub od razu zapisz plik. "
+                    f"Walidacja wg CN {CN_EDITION_YEAR}."
+                )
+                h1, h2, h3, h4 = st.columns([3, 2, 3, 2])
+                h1.markdown("**Błędny kod CN**")
+                h2.markdown("**Status · ile razy**")
+                h3.markdown("**Kod zastępczy**")
+                h4.markdown("**Po poprawce**")
+
+                corrected = remaining = 0
+                badges = {"poprawiony": "✅ poprawiony", "nieaktualny": "❌ nieaktualny", "błędny format": "❌ błędny format"}
+                for code in sorted(invalid):
+                    info = invalid[code]
+                    c1, c2, c3, c4 = st.columns([3, 2, 3, 2])
+                    c1.code(code, language=None)
+                    c2.write(f"{info['status']} · {info['count']}×")
+                    repl = c3.text_input(
+                        "kod zastępczy", key=f"cn_fix_{code}",
+                        label_visibility="collapsed", placeholder="np. 84713000",
+                    )
+                    status_now, _ = cn_outcome(code, repl, VALID_CN)
+                    if repl and repl.strip():
+                        cn_replacements[code] = repl.strip()
+                    c4.markdown(badges.get(status_now, status_now))
+                    if status_now == "poprawiony":
+                        corrected += 1
+                    else:
+                        remaining += 1
+
+                b1, b2 = st.columns([1, 3])
+                b1.button("🔁 Sprawdź ponownie kody")
+                b2.markdown(f"**Pozostało niepoprawnych: {remaining}** · poprawionych: {corrected}")
+                st.caption("Możesz teraz zapisać plik poniżej — poprawione kody zostaną podmienione w kolumnie CN.")
+        else:
+            st.success(f"Wszystkie kody CN w kolumnie „{cn_column}” są zgodne z CN {CN_EDITION_YEAR}.")
+
     # Info
     source_label = "NBP" if source == "NBP" else "EBC"
     info_text = (
@@ -534,7 +636,7 @@ if uploaded_file is not None:
     if st.button("Pobierz kursy i generuj plik", type="primary"):
         with st.spinner("Pobieram kursy walut..."):
             progress = st.progress(0)
-            wb = process_workbook(wb, sheet_name, col_idx, source, currency, amount_col_idx, progress, country_col_idx, trim_multiline, vat_col_idx, cn_col_idx, VALID_CN)
+            wb = process_workbook(wb, sheet_name, col_idx, source, currency, amount_col_idx, progress, country_col_idx, trim_multiline, vat_col_idx, cn_col_idx, VALID_CN, cn_replacements)
 
         st.success("Gotowe! Kursy zostały dodane.")
 

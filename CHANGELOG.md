@@ -1,5 +1,10 @@
 # CHANGELOG — FX_TOOL
 
+## 2026-06-10 (6)
+- **Interaktywna korekta kodów CN.** Po wskazaniu kolumny CN apka od razu listuje niepoprawne kody (z liczbą wystąpień). Obok każdego pole na kod zastępczy — wpisany kod podmienia błędny w kolumnie CN. Przycisk „🔁 Sprawdź ponownie kody" przelicza statusy na żywo; obok „Pozostało niepoprawnych / poprawionych". Drugą opcją jest zwykły zapis pliku. Status CN po operacji: `OK` / `nieaktualny` (niepoprawiony lub poprawiony na inny zły) / `poprawiony` / `błędny format`.
+- Wspólna funkcja `cn_outcome(oryginał, zamiennik, lista) -> (status, wartość)` używana i w UI, i przy zapisie — podgląd nie może rozjechać się z plikiem.
+- Hardening: odczyt pliku przez `getvalue()` (odporne na częste przeładowania UI).
+
 ## 2026-06-10 (5)
 - Nowa opcja (sekcja Fluiconnecto): **walidacja kodów CN** względem obowiązującej edycji **CN 2026**. Z kolumny z kodami CN powstaje nowa kolumna ze statusem: `OK` / `nieaktualny` / `błędny format`. Obsługa zera wiodącego (Excel zapisuje 01012100 jako liczbę 1012100 — uzupełniane). Lista 9791 kodów wbudowana w repo (`cn_2026.txt`), źródło: GUS (stat.gov.pl), ładowana raz (cache). Rok edycji widoczny w UI i nagłówku kolumny.
   - **UWAGA (utrzymanie):** lista CN aktualizowana co roku — w styczniu pobrać nowy plik CN z GUS, wygenerować `cn_<rok>.txt`, podbić `CN_EDITION_YEAR` w app.py.
