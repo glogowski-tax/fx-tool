@@ -5,9 +5,10 @@ from openpyxl.utils.cell import range_boundaries
 from openpyxl.styles import PatternFill, Font
 import requests
 import re
+import csv
 from pathlib import Path
 from datetime import date, timedelta
-from io import BytesIO
+from io import BytesIO, StringIO
 
 # Edycja Nomenklatury Scalonej, względem której walidujemy kody CN.
 # Lista w pliku cn_<rok>.txt (8-cyfrowe kody, jedna sztuka na linię).
@@ -82,6 +83,68 @@ def first_line_only(val):
         lines = val.splitlines()
         return lines[0] if lines else ""
     return val
+
+
+def _coerce_csv_value(s: str):
+    """Zamienia tekst z CSV na liczbę, jeśli to czysta liczba. Zachowuje wiodące zera
+    jako tekst (kody CN/ID), obsługuje przecinek dziesiętny (1234,56)."""
+    s = s.strip()
+    if s == "":
+        return None
+    if re.fullmatch(r"-?\d+", s):
+        body = s.lstrip("-")
+        if len(body) > 1 and body.startswith("0"):
+            return s  # wiodące zero = prawdopodobnie kod, zostaw tekstem
+        return int(s)
+    t = s.replace(" ", "")
+    if re.fullmatch(r"-?\d+[.,]\d+", t):
+        return float(t.replace(",", "."))
+    return s
+
+
+def read_csv_to_workbook(raw: bytes):
+    """Wczytuje CSV (bytes) do skoroszytu openpyxl w pamięci.
+    Zwraca (wb, delimiter). Auto-wykrywa kodowanie i separator."""
+    text = None
+    for enc in ("utf-8-sig", "cp1250", "latin-1"):
+        try:
+            text = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        text = raw.decode("utf-8", errors="replace")
+
+    sample = text[:5000]
+    counts = {d: sample.count(d) for d in (";", "\t", ",")}
+    delimiter = max(counts, key=counts.get) if max(counts.values()) > 0 else ","
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    reader = csv.reader(StringIO(text), delimiter=delimiter)
+    for ri, row in enumerate(reader, start=1):
+        for ci, val in enumerate(row, start=1):
+            ws.cell(row=ri, column=ci, value=_coerce_csv_value(val))
+    return wb, delimiter
+
+
+def workbook_to_csv_bytes(ws, delimiter: str) -> bytes:
+    """Eksportuje arkusz do CSV (bytes, UTF-8 z BOM). Liczby dziesiętne: przecinek
+    gdy separator to ';', kropka gdy ','."""
+    dec = "," if delimiter == ";" else "."
+    buf = StringIO()
+    writer = csv.writer(buf, delimiter=delimiter, lineterminator="\r\n")
+    for row in ws.iter_rows(values_only=True):
+        out = []
+        for v in row:
+            if v is None:
+                out.append("")
+            elif isinstance(v, float):
+                out.append(f"{v:.6f}".rstrip("0").rstrip(".").replace(".", dec))
+            else:
+                out.append(str(v))
+        writer.writerow(out)
+    return buf.getvalue().encode("utf-8-sig")
 
 
 def load_cn_codes(year: int) -> frozenset:
@@ -435,16 +498,22 @@ def get_valid_cn(year: int) -> frozenset:
 VALID_CN = get_valid_cn(CN_EDITION_YEAR)
 
 st.title("FX Tool — Kursy walut do Excel")
-st.markdown("Załaduj plik Excel, wskaż kolumnę z datami, a aplikacja wstawi kurs wybranej waluty/PLN z dnia poprzedzającego.")
+st.markdown("Załaduj plik Excel lub CSV, wskaż kolumnę z datami, a aplikacja wstawi kurs wybranej waluty/PLN z dnia poprzedzającego.")
 
 st.warning("Plik wyjściowy zawiera wartości zamiast formuł. Oryginalny plik nie jest modyfikowany.")
 
 # Upload pliku
-uploaded_file = st.file_uploader("Wybierz plik Excel", type=["xlsx"])
+uploaded_file = st.file_uploader("Wybierz plik Excel lub CSV", type=["xlsx", "csv"])
 
 if uploaded_file is not None:
-    file_bytes = BytesIO(uploaded_file.getvalue())  # getvalue() odporne na wielokrotne przeładowania
-    wb = openpyxl.load_workbook(file_bytes, data_only=True, rich_text=False)
+    is_csv = uploaded_file.name.lower().endswith(".csv")
+    csv_delimiter = ","
+    if is_csv:
+        wb, csv_delimiter = read_csv_to_workbook(uploaded_file.getvalue())
+        st.caption(f"Wczytano CSV (separator: „{csv_delimiter}”). Plik wynikowy też będzie w formacie CSV.")
+    else:
+        file_bytes = BytesIO(uploaded_file.getvalue())  # getvalue() odporne na wielokrotne przeładowania
+        wb = openpyxl.load_workbook(file_bytes, data_only=True, rich_text=False)
 
     # Wybór arkusza
     sheet_names = wb.sheetnames
@@ -642,18 +711,26 @@ if uploaded_file is not None:
 
         st.success("Gotowe! Kursy zostały dodane.")
 
-        # Usuń zewnętrzne odnośniki (powodują błędy przy otwieraniu w Excelu)
-        wb._external_links = []
-
-        # Zapis do bufora i przycisk pobierania
-        output = BytesIO()
-        wb.save(output)
-        output.seek(0)
-
         original_name = uploaded_file.name.rsplit(".", 1)[0]
-        st.download_button(
-            label="Pobierz plik Excel z kursami",
-            data=output,
-            file_name=f"{original_name}_z_kursami.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+
+        if is_csv:
+            # Eksport z powrotem do CSV (bez formatowania — same wartości)
+            csv_bytes = workbook_to_csv_bytes(wb[sheet_name], csv_delimiter)
+            st.download_button(
+                label="Pobierz plik CSV z kursami",
+                data=csv_bytes,
+                file_name=f"{original_name}_z_kursami.csv",
+                mime="text/csv",
+            )
+        else:
+            # Usuń zewnętrzne odnośniki (powodują błędy przy otwieraniu w Excelu)
+            wb._external_links = []
+            output = BytesIO()
+            wb.save(output)
+            output.seek(0)
+            st.download_button(
+                label="Pobierz plik Excel z kursami",
+                data=output,
+                file_name=f"{original_name}_z_kursami.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )

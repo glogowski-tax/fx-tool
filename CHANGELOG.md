@@ -1,5 +1,8 @@
 # CHANGELOG — FX_TOOL
 
+## 2026-06-10 (9)
+- **Obsługa plików CSV** obok Excela. Uploader przyjmuje `xlsx` i `csv`. Wczytywanie CSV: auto-wykrywanie kodowania (`utf-8-sig` → `cp1250` → `latin-1`) i separatora (`;` / tab / `,`). Wartości konwertowane sensownie: czyste liczby → int, przecinek dziesiętny `1234,56` → float, **kody z wiodącym zerem zostają tekstem** (nie psuje CN/ID). Eksport: jeśli wejście było CSV → wynik też CSV (UTF-8 z BOM, separator dziesiętny dopasowany do separatora pól); jeśli Excel → po staremu xlsx. Bez nowych zależności (stdlib `csv`/`io`).
+
 ## 2026-06-10 (8)
 - Przeliczanie PLN: powrót do **pełnych złotych** (round bez miejsc po przecinku), format komórki `0` (bez zer po przecinku, bez separatora tysięcy). Cofnięcie zmiany z (1)/(2) na życzenie.
 
