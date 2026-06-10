@@ -67,6 +67,15 @@ def normalize_country_code(val):
     return ISO_A3_TO_A2.get(code, val)
 
 
+def first_line_only(val):
+    """Jeśli komórka zawiera złamanie linii (Alt+Enter), zwraca tylko pierwszą linię.
+    Pozostałe wartości zwraca bez zmian."""
+    if isinstance(val, str) and ("\n" in val or "\r" in val):
+        lines = val.splitlines()
+        return lines[0] if lines else ""
+    return val
+
+
 def fetch_nbp_rates(date_from: date, date_to: date, currency: str = "eur") -> dict[date, float]:
     """Pobiera wszystkie kursy waluty/PLN z NBP w podanym zakresie dat (jedno zapytanie)."""
     url = f"https://api.nbp.pl/api/exchangerates/rates/a/{currency.lower()}/{date_from}/{date_to}/?format=json"
@@ -169,9 +178,16 @@ def update_table_refs(ws, insert_col: int, col_name: str = ""):
         table.ref = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{max_row}"
 
 
-def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: str, amount_col_idx: int | None, progress_bar, country_col_idx: int | None = None):
+def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: str, amount_col_idx: int | None, progress_bar, country_col_idx: int | None = None, trim_multiline: bool = False):
     """Przetwarza arkusz — wstawia kolumny z kursami obok kolumny dat."""
     ws = wb[sheet_name]
+
+    # Utnij wielolinijkowy tekst do pierwszej linii (przed wstawianiem kolumn).
+    # Zmienia tylko komórki ze złamaniem linii (Alt+Enter), reszta bez zmian.
+    if trim_multiline:
+        for row in ws.iter_rows():
+            for cell in row:
+                cell.value = first_line_only(cell.value)
 
     # Normalizacja kodów krajów (alpha-3 -> alpha-2) w nowej kolumnie obok.
     # Robimy to PRZED wstawieniem kolumn z kursami, żeby indeksy zgadzały się z nagłówkami.
@@ -382,6 +398,12 @@ if uploaded_file is not None:
         )
         country_col_idx = headers.index(country_column) + 1 if country_column != "— nie normalizuj —" else None
 
+    trim_multiline = st.checkbox(
+        "Utnij wielolinijkowy tekst do pierwszej linii (we wszystkich komórkach)",
+        value=True,
+        help="Komórki ze złamaniem linii (Alt+Enter) zostaną skrócone do pierwszej linii. Jednolinijkowe pozostają bez zmian.",
+    )
+
     # Info
     source_label = "NBP" if source == "NBP" else "EBC"
     info_text = (
@@ -392,13 +414,15 @@ if uploaded_file is not None:
         info_text += f"\n\nKwoty z kolumny **\"{amount_column}\"** zostaną przeliczone na PLN (zaokrąglone do dwóch miejsc po przecinku)."
     if country_col_idx:
         info_text += f"\n\nKody krajów z kolumny **\"{country_column}\"** zostaną znormalizowane (3-literowe → 2-literowe, ISO 3166) w nowej kolumnie obok."
+    if trim_multiline:
+        info_text += "\n\nWielolinijkowy tekst w komórkach zostanie skrócony do pierwszej linii."
     st.info(info_text)
 
     # Przycisk generowania
     if st.button("Pobierz kursy i generuj plik", type="primary"):
         with st.spinner("Pobieram kursy walut..."):
             progress = st.progress(0)
-            wb = process_workbook(wb, sheet_name, col_idx, source, currency, amount_col_idx, progress, country_col_idx)
+            wb = process_workbook(wb, sheet_name, col_idx, source, currency, amount_col_idx, progress, country_col_idx, trim_multiline)
 
         st.success("Gotowe! Kursy zostały dodane.")
 
