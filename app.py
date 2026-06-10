@@ -11,6 +11,61 @@ HIGHLIGHT_FILL = PatternFill(start_color="DAEEF3", end_color="DAEEF3", fill_type
 HIGHLIGHT_HEADER = PatternFill(start_color="4BACC6", end_color="4BACC6", fill_type="solid")
 HEADER_FONT = Font(bold=True, color="FFFFFF")
 
+# Mapa ISO 3166-1: kod 3-literowy (alpha-3) -> kod 2-literowy (alpha-2)
+ISO_A3_TO_A2 = {
+    "AFG": "AF", "ALA": "AX", "ALB": "AL", "DZA": "DZ", "ASM": "AS", "AND": "AD",
+    "AGO": "AO", "AIA": "AI", "ATA": "AQ", "ATG": "AG", "ARG": "AR", "ARM": "AM",
+    "ABW": "AW", "AUS": "AU", "AUT": "AT", "AZE": "AZ", "BHS": "BS", "BHR": "BH",
+    "BGD": "BD", "BRB": "BB", "BLR": "BY", "BEL": "BE", "BLZ": "BZ", "BEN": "BJ",
+    "BMU": "BM", "BTN": "BT", "BOL": "BO", "BES": "BQ", "BIH": "BA", "BWA": "BW",
+    "BVT": "BV", "BRA": "BR", "IOT": "IO", "BRN": "BN", "BGR": "BG", "BFA": "BF",
+    "BDI": "BI", "CPV": "CV", "KHM": "KH", "CMR": "CM", "CAN": "CA", "CYM": "KY",
+    "CAF": "CF", "TCD": "TD", "CHL": "CL", "CHN": "CN", "CXR": "CX", "CCK": "CC",
+    "COL": "CO", "COM": "KM", "COG": "CG", "COD": "CD", "COK": "CK", "CRI": "CR",
+    "CIV": "CI", "HRV": "HR", "CUB": "CU", "CUW": "CW", "CYP": "CY", "CZE": "CZ",
+    "DNK": "DK", "DJI": "DJ", "DMA": "DM", "DOM": "DO", "ECU": "EC", "EGY": "EG",
+    "SLV": "SV", "GNQ": "GQ", "ERI": "ER", "EST": "EE", "SWZ": "SZ", "ETH": "ET",
+    "FLK": "FK", "FRO": "FO", "FJI": "FJ", "FIN": "FI", "FRA": "FR", "GUF": "GF",
+    "PYF": "PF", "ATF": "TF", "GAB": "GA", "GMB": "GM", "GEO": "GE", "DEU": "DE",
+    "GHA": "GH", "GIB": "GI", "GRC": "GR", "GRL": "GL", "GRD": "GD", "GLP": "GP",
+    "GUM": "GU", "GTM": "GT", "GGY": "GG", "GIN": "GN", "GNB": "GW", "GUY": "GY",
+    "HTI": "HT", "HMD": "HM", "VAT": "VA", "HND": "HN", "HKG": "HK", "HUN": "HU",
+    "ISL": "IS", "IND": "IN", "IDN": "ID", "IRN": "IR", "IRQ": "IQ", "IRL": "IE",
+    "IMN": "IM", "ISR": "IL", "ITA": "IT", "JAM": "JM", "JPN": "JP", "JEY": "JE",
+    "JOR": "JO", "KAZ": "KZ", "KEN": "KE", "KIR": "KI", "PRK": "KP", "KOR": "KR",
+    "KWT": "KW", "KGZ": "KG", "LAO": "LA", "LVA": "LV", "LBN": "LB", "LSO": "LS",
+    "LBR": "LR", "LBY": "LY", "LIE": "LI", "LTU": "LT", "LUX": "LU", "MAC": "MO",
+    "MDG": "MG", "MWI": "MW", "MYS": "MY", "MDV": "MV", "MLI": "ML", "MLT": "MT",
+    "MHL": "MH", "MTQ": "MQ", "MRT": "MR", "MUS": "MU", "MYT": "YT", "MEX": "MX",
+    "FSM": "FM", "MDA": "MD", "MCO": "MC", "MNG": "MN", "MNE": "ME", "MSR": "MS",
+    "MAR": "MA", "MOZ": "MZ", "MMR": "MM", "NAM": "NA", "NRU": "NR", "NPL": "NP",
+    "NLD": "NL", "NCL": "NC", "NZL": "NZ", "NIC": "NI", "NER": "NE", "NGA": "NG",
+    "NIU": "NU", "NFK": "NF", "MKD": "MK", "MNP": "MP", "NOR": "NO", "OMN": "OM",
+    "PAK": "PK", "PLW": "PW", "PSE": "PS", "PAN": "PA", "PNG": "PG", "PRY": "PY",
+    "PER": "PE", "PHL": "PH", "PCN": "PN", "POL": "PL", "PRT": "PT", "PRI": "PR",
+    "QAT": "QA", "REU": "RE", "ROU": "RO", "RUS": "RU", "RWA": "RW", "BLM": "BL",
+    "SHN": "SH", "KNA": "KN", "LCA": "LC", "MAF": "MF", "SPM": "PM", "VCT": "VC",
+    "WSM": "WS", "SMR": "SM", "STP": "ST", "SAU": "SA", "SEN": "SN", "SRB": "RS",
+    "SYC": "SC", "SLE": "SL", "SGP": "SG", "SXM": "SX", "SVK": "SK", "SVN": "SI",
+    "SLB": "SB", "SOM": "SO", "ZAF": "ZA", "SGS": "GS", "SSD": "SS", "ESP": "ES",
+    "LKA": "LK", "SDN": "SD", "SUR": "SR", "SJM": "SJ", "SWE": "SE", "CHE": "CH",
+    "SYR": "SY", "TWN": "TW", "TJK": "TJ", "TZA": "TZ", "THA": "TH", "TLS": "TL",
+    "TGO": "TG", "TKL": "TK", "TON": "TO", "TTO": "TT", "TUN": "TN", "TUR": "TR",
+    "TKM": "TM", "TCA": "TC", "TUV": "TV", "UGA": "UG", "UKR": "UA", "ARE": "AE",
+    "GBR": "GB", "USA": "US", "UMI": "UM", "URY": "UY", "UZB": "UZ", "VUT": "VU",
+    "VEN": "VE", "VNM": "VN", "VGB": "VG", "VIR": "VI", "WLF": "WF", "ESH": "EH",
+    "YEM": "YE", "ZMB": "ZM", "ZWE": "ZW",
+}
+
+
+def normalize_country_code(val):
+    """Konwertuje kod kraju alpha-3 (np. 'ITA') na alpha-2 (np. 'IT').
+    Nieznane kody / wartości zwraca bez zmian."""
+    if val is None:
+        return None
+    code = str(val).strip().upper()
+    return ISO_A3_TO_A2.get(code, val)
+
 
 def fetch_nbp_rates(date_from: date, date_to: date, currency: str = "eur") -> dict[date, float]:
     """Pobiera wszystkie kursy waluty/PLN z NBP w podanym zakresie dat (jedno zapytanie)."""
@@ -114,9 +169,33 @@ def update_table_refs(ws, insert_col: int, col_name: str = ""):
         table.ref = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{max_row}"
 
 
-def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: str, amount_col_idx: int | None, progress_bar):
+def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: str, amount_col_idx: int | None, progress_bar, country_col_idx: int | None = None):
     """Przetwarza arkusz — wstawia kolumny z kursami obok kolumny dat."""
     ws = wb[sheet_name]
+
+    # Normalizacja kodów krajów (alpha-3 -> alpha-2) w nowej kolumnie obok.
+    # Robimy to PRZED wstawieniem kolumn z kursami, żeby indeksy zgadzały się z nagłówkami.
+    if country_col_idx is not None:
+        # Wczytaj oryginalne kody i nagłówek zanim cokolwiek wstawimy
+        src_header = ws.cell(row=1, column=country_col_idx).value
+        country_src = {r: ws.cell(row=r, column=country_col_idx).value for r in range(2, ws.max_row + 1)}
+
+        country_out_col = country_col_idx + 1
+        ws.insert_cols(country_out_col)
+        out_header = f"{src_header} (ISO-2)" if src_header else "Kod kraju (ISO-2)"
+        update_table_refs(ws, country_out_col, out_header)
+        c_header = ws.cell(row=1, column=country_out_col, value=out_header)
+        c_header.fill = HIGHLIGHT_HEADER
+        c_header.font = HEADER_FONT
+        for r in range(2, ws.max_row + 1):
+            out_cell = ws.cell(row=r, column=country_out_col, value=normalize_country_code(country_src.get(r)))
+            out_cell.fill = HIGHLIGHT_FILL
+
+        # Skoryguj indeksy w dół o wstawioną kolumnę
+        if col_idx >= country_out_col:
+            col_idx += 1
+        if amount_col_idx is not None and amount_col_idx >= country_out_col:
+            amount_col_idx += 1
 
     # Wstaw kolumnę z kursem zaraz po kolumnie z datami
     rate_col = col_idx + 1
@@ -289,6 +368,20 @@ if uploaded_file is not None:
         amount_column = st.selectbox(f"Kolumna z kwotami ({currency})", amount_options)
         amount_col_idx = headers.index(amount_column) + 1 if amount_column != "— nie przeliczaj —" else None
 
+    col5, _ = st.columns(2)
+    with col5:
+        country_options = ["— nie normalizuj —"] + headers
+        # Auto-wykryj kolumnę OrigCountryRegionId (bez względu na wielkość liter)
+        default_idx = 0
+        for i, h in enumerate(headers):
+            if h.strip().lower() == "origcountryregionid":
+                default_idx = i + 1
+                break
+        country_column = st.selectbox(
+            "Kolumna z kodem kraju (alpha-3 → alpha-2)", country_options, index=default_idx
+        )
+        country_col_idx = headers.index(country_column) + 1 if country_column != "— nie normalizuj —" else None
+
     # Info
     source_label = "NBP" if source == "NBP" else "EBC"
     info_text = (
@@ -297,13 +390,15 @@ if uploaded_file is not None:
     )
     if amount_col_idx:
         info_text += f"\n\nKwoty z kolumny **\"{amount_column}\"** zostaną przeliczone na PLN (zaokrąglone do dwóch miejsc po przecinku)."
+    if country_col_idx:
+        info_text += f"\n\nKody krajów z kolumny **\"{country_column}\"** zostaną znormalizowane (3-literowe → 2-literowe, ISO 3166) w nowej kolumnie obok."
     st.info(info_text)
 
     # Przycisk generowania
     if st.button("Pobierz kursy i generuj plik", type="primary"):
         with st.spinner("Pobieram kursy walut..."):
             progress = st.progress(0)
-            wb = process_workbook(wb, sheet_name, col_idx, source, currency, amount_col_idx, progress)
+            wb = process_workbook(wb, sheet_name, col_idx, source, currency, amount_col_idx, progress, country_col_idx)
 
         st.success("Gotowe! Kursy zostały dodane.")
 
