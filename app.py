@@ -4,8 +4,16 @@ from openpyxl.utils import get_column_letter
 from openpyxl.utils.cell import range_boundaries
 from openpyxl.styles import PatternFill, Font
 import requests
+import re
+from pathlib import Path
 from datetime import date, timedelta
 from io import BytesIO
+
+# Edycja Nomenklatury Scalonej, względem której walidujemy kody CN.
+# Lista w pliku cn_<rok>.txt (8-cyfrowe kody, jedna sztuka na linię).
+# Źródło: GUS (stat.gov.pl), oficjalny plik CN dla Intrastatu.
+# AKTUALIZACJA RAZ W ROKU: pobrać nowy plik CN, wygenerować cn_<rok>.txt, podbić rok.
+CN_EDITION_YEAR = 2026
 
 HIGHLIGHT_FILL = PatternFill(start_color="DAEEF3", end_color="DAEEF3", fill_type="solid")
 HIGHLIGHT_HEADER = PatternFill(start_color="4BACC6", end_color="4BACC6", fill_type="solid")
@@ -74,6 +82,34 @@ def first_line_only(val):
         lines = val.splitlines()
         return lines[0] if lines else ""
     return val
+
+
+def load_cn_codes(year: int) -> frozenset:
+    """Wczytuje zbiór obowiązujących 8-cyfrowych kodów CN z pliku cn_<rok>.txt.
+    Zwraca pusty zbiór, jeśli pliku brak (walidacja wtedy nieaktywna)."""
+    path = Path(__file__).with_name(f"cn_{year}.txt")
+    if not path.exists():
+        return frozenset()
+    return frozenset(
+        line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+    )
+
+
+def check_cn_code(val, valid_cn: frozenset):
+    """Sprawdza kod CN względem listy obowiązujących.
+    Zwraca: 'OK', 'nieaktualny', 'błędny format' lub None (pusta komórka)."""
+    if val is None or str(val).strip() == "":
+        return None
+    digits = re.sub(r"\D", "", str(val))
+    if not digits:
+        return None
+    # Excel gubi wiodące zero przy kodach z rozdziałów 01-09 (01012100 -> liczba 1012100).
+    # Kod CN zapisany jako liczba ma więc zawsze 7 lub 8 cyfr — 7-cyfrowy uzupełniamy.
+    if len(digits) == 7:
+        digits = digits.zfill(8)
+    if len(digits) != 8:
+        return "błędny format"
+    return "OK" if digits in valid_cn else "nieaktualny"
 
 
 def extract_vat_country(val):
@@ -190,7 +226,7 @@ def update_table_refs(ws, insert_col: int, col_name: str = ""):
         table.ref = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{max_row}"
 
 
-def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: str, amount_col_idx: int | None, progress_bar, country_col_idx: int | None = None, trim_multiline: bool = False, vat_col_idx: int | None = None):
+def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: str, amount_col_idx: int | None, progress_bar, country_col_idx: int | None = None, trim_multiline: bool = False, vat_col_idx: int | None = None, cn_col_idx: int | None = None, valid_cn: frozenset = frozenset()):
     """Przetwarza arkusz — wstawia kolumny z kursami obok kolumny dat."""
     ws = wb[sheet_name]
 
@@ -204,7 +240,7 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: s
     # Kolumny pochodne (kod kraju ISO-2, kod kraju z VAT) wstawiamy PRZED kolumnami
     # z kursami. Wspólny helper koryguje WSZYSTKIE śledzone indeksy po każdym
     # wstawieniu — to eliminuje ciche błędy przesunięcia kolumn (4 wstawienia).
-    idx = {"date": col_idx, "amount": amount_col_idx, "country": country_col_idx, "vat": vat_col_idx}
+    idx = {"date": col_idx, "amount": amount_col_idx, "country": country_col_idx, "vat": vat_col_idx, "cn": cn_col_idx}
 
     def insert_derived_column(src_key, transform, header_suffix, default_header):
         src = idx[src_key]
@@ -229,6 +265,10 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: s
 
     insert_derived_column("country", normalize_country_code, "(ISO-2)", "Kod kraju (ISO-2)")
     insert_derived_column("vat", extract_vat_country, "(kod kraju)", "Kod kraju z VAT")
+    insert_derived_column(
+        "cn", lambda v: check_cn_code(v, valid_cn),
+        f"(status CN {CN_EDITION_YEAR})", f"Status CN {CN_EDITION_YEAR}",
+    )
 
     col_idx = idx["date"]
     amount_col_idx = idx["amount"]
@@ -341,6 +381,13 @@ CURRENCIES = {
     "ISK": "korona islandzka", "XDR": "SDR (MFW)",
 }
 
+@st.cache_data
+def get_valid_cn(year: int) -> frozenset:
+    return load_cn_codes(year)
+
+
+VALID_CN = get_valid_cn(CN_EDITION_YEAR)
+
 st.title("FX Tool — Kursy walut do Excel")
 st.markdown("Załaduj plik Excel, wskaż kolumnę z datami, a aplikacja wstawi kurs wybranej waluty/PLN z dnia poprzedzającego.")
 
@@ -441,6 +488,24 @@ if uploaded_file is not None:
             )
             vat_col_idx = headers.index(vat_column) + 1 if vat_column != "— nie wyciągaj —" else None
 
+        fc3, _fc4 = st.columns(2)
+        with fc3:
+            cn_options = ["— nie sprawdzaj —"] + headers
+            # Auto-wykryj kolumnę z kodem CN
+            cn_default = 0
+            for i, h in enumerate(headers):
+                hl = h.strip().lower()
+                if hl in ("cn", "kod cn", "kodcn", "cncode", "cn code") or "commodity" in hl or "nomenkl" in hl:
+                    cn_default = i + 1
+                    break
+            cn_column = st.selectbox(
+                f"Kolumna z kodem CN (walidacja wg CN {CN_EDITION_YEAR})", cn_options, index=cn_default,
+                help=f"Każdy kod CN sprawdzany względem obowiązującej edycji CN {CN_EDITION_YEAR}. Status w nowej kolumnie obok: OK / nieaktualny / błędny format.",
+            )
+            cn_col_idx = headers.index(cn_column) + 1 if cn_column != "— nie sprawdzaj —" else None
+        if cn_col_idx and not VALID_CN:
+            st.warning(f"Brak wbudowanej listy kodów CN {CN_EDITION_YEAR} (plik cn_{CN_EDITION_YEAR}.txt) — walidacja CN zostanie pominięta.")
+
         trim_multiline = st.checkbox(
             "Utnij wielolinijkowy tekst do pierwszej linii (we wszystkich komórkach)",
             value=True,
@@ -459,6 +524,8 @@ if uploaded_file is not None:
         info_text += f"\n\nKody krajów z kolumny **\"{country_column}\"** zostaną znormalizowane (3-literowe → 2-literowe, ISO 3166) w nowej kolumnie obok."
     if vat_col_idx:
         info_text += f"\n\nZ numerów VAT z kolumny **\"{vat_column}\"** zostanie wyciągnięty kod kraju (EL → GR) w nowej kolumnie obok."
+    if cn_col_idx and VALID_CN:
+        info_text += f"\n\nKody CN z kolumny **\"{cn_column}\"** zostaną sprawdzone względem obowiązującej edycji **CN {CN_EDITION_YEAR}** (status w nowej kolumnie obok)."
     if trim_multiline:
         info_text += "\n\nWielolinijkowy tekst w komórkach zostanie skrócony do pierwszej linii."
     st.info(info_text)
@@ -467,7 +534,7 @@ if uploaded_file is not None:
     if st.button("Pobierz kursy i generuj plik", type="primary"):
         with st.spinner("Pobieram kursy walut..."):
             progress = st.progress(0)
-            wb = process_workbook(wb, sheet_name, col_idx, source, currency, amount_col_idx, progress, country_col_idx, trim_multiline, vat_col_idx)
+            wb = process_workbook(wb, sheet_name, col_idx, source, currency, amount_col_idx, progress, country_col_idx, trim_multiline, vat_col_idx, cn_col_idx, VALID_CN)
 
         st.success("Gotowe! Kursy zostały dodane.")
 

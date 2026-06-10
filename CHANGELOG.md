@@ -1,5 +1,9 @@
 # CHANGELOG — FX_TOOL
 
+## 2026-06-10 (5)
+- Nowa opcja (sekcja Fluiconnecto): **walidacja kodów CN** względem obowiązującej edycji **CN 2026**. Z kolumny z kodami CN powstaje nowa kolumna ze statusem: `OK` / `nieaktualny` / `błędny format`. Obsługa zera wiodącego (Excel zapisuje 01012100 jako liczbę 1012100 — uzupełniane). Lista 9791 kodów wbudowana w repo (`cn_2026.txt`), źródło: GUS (stat.gov.pl), ładowana raz (cache). Rok edycji widoczny w UI i nagłówku kolumny.
+  - **UWAGA (utrzymanie):** lista CN aktualizowana co roku — w styczniu pobrać nowy plik CN z GUS, wygenerować `cn_<rok>.txt`, podbić `CN_EDITION_YEAR` w app.py.
+
 ## 2026-06-10 (4)
 - Nowa opcja: **kod kraju z numeru VAT** — z kolumny z numerami VAT kontrahentów wyciągany 2-literowy prefiks kraju do nowej kolumny obok (`... (kod kraju)`). `EL` (prefiks VAT Grecji) → `GR`; pozostałe zgodne z ISO 3166. `XI` (Irlandia Płn.) zachowane. Brak czytelnego prefiksu → pusta komórka. Kolumna VAT auto-wykrywana (nazwa zawiera „vat").
 - **Front-end:** opcje specyficzne dla klienta **Fluiconnecto** (normalizacja kraju, kod kraju z VAT, ucinanie wielolinijkowego tekstu) zgrupowane w wyróżnionej, obramowanej sekcji „🔶 Obróbka dla Fluiconnecto" — operator od razu widzi, że to obróbka kliencka.
