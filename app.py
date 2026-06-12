@@ -538,7 +538,10 @@ st.markdown("Załaduj plik Excel lub CSV, wskaż kolumnę z datami, a aplikacja 
 st.warning("Plik wyjściowy zawiera wartości zamiast formuł. Oryginalny plik nie jest modyfikowany.")
 
 # Upload pliku
-uploaded_file = st.file_uploader("Wybierz plik Excel lub CSV", type=["xlsx", "csv"])
+uploaded_file = st.file_uploader(
+    "Wybierz plik Excel lub CSV", type=["xlsx", "csv"],
+    help="Obsługiwane formaty: .xlsx (Excel) i .csv. Dla CSV separator (`;` / tab / `,`) i kodowanie są wykrywane automatycznie, a plik wynikowy też powstaje w formacie CSV. Oryginalny plik nigdy nie jest modyfikowany — pobierasz nową kopię.",
+)
 
 if uploaded_file is not None:
     is_csv = uploaded_file.name.lower().endswith(".csv")
@@ -555,7 +558,10 @@ if uploaded_file is not None:
     if len(sheet_names) == 1:
         sheet_name = sheet_names[0]
     else:
-        sheet_name = st.selectbox("Wybierz arkusz", sheet_names)
+        sheet_name = st.selectbox(
+            "Wybierz arkusz", sheet_names,
+            help="Arkusz, którego dane zostaną przetworzone. Pozostałe arkusze w pliku nie są ruszane.",
+        )
 
     ws = wb[sheet_name]
 
@@ -579,26 +585,38 @@ if uploaded_file is not None:
     col1, col2 = st.columns(2)
 
     with col1:
-        date_column = st.selectbox("Wskaż kolumnę z datami", headers)
+        date_column = st.selectbox(
+            "Wskaż kolumnę z datami", headers,
+            help="Dla każdej daty w tej kolumnie pobierany jest kurs z **ostatniego dnia roboczego przed** tą datą. Kurs trafia do nowej kolumny wstawionej zaraz obok.",
+        )
         col_idx = headers.index(date_column) + 1
 
     with col2:
         currency_options = [f"{code} — {name}" for code, name in CURRENCIES.items()]
-        currency_choice = st.selectbox("Waluta", currency_options)
+        currency_choice = st.selectbox(
+            "Waluta", currency_options,
+            help="Waluta, której kurs do PLN zostanie pobrany. Dla **EUR** możesz wybrać źródło NBP lub EBC; pozostałe waluty zawsze z NBP.",
+        )
         currency = currency_choice.split(" — ")[0]
 
     col3, col4 = st.columns(2)
 
     with col3:
         if currency == "EUR":
-            source = st.radio("Źródło kursu", ["NBP", "ECB"], horizontal=True)
+            source = st.radio(
+                "Źródło kursu", ["NBP", "ECB"], horizontal=True,
+                help="**NBP** — tabela A Narodowego Banku Polskiego. **ECB/EBC** — kursy referencyjne Europejskiego Banku Centralnego. Wybór dotyczy wyłącznie EUR.",
+            )
         else:
             source = "NBP"
             st.info("Źródło: **NBP** (EBC dostępne tylko dla EUR)")
 
     with col4:
         amount_options = ["— nie przeliczaj —"] + headers
-        amount_column = st.selectbox(f"Kolumna z kwotami ({currency})", amount_options)
+        amount_column = st.selectbox(
+            f"Kolumna z kwotami ({currency})", amount_options,
+            help=f"Kwoty w {currency} z tej kolumny zostaną przeliczone na PLN po pobranym kursie (zaokrąglone do pełnych złotych) i wpisane w nowej kolumnie obok. „— nie przeliczaj —” = tylko wstaw kurs, bez przeliczania kwot.",
+        )
         amount_col_idx = headers.index(amount_column) + 1 if amount_column != "— nie przeliczaj —" else None
 
     # ---- Sekcja specyficzna dla klienta: Fluiconnecto ----
@@ -620,7 +638,8 @@ if uploaded_file is not None:
                     country_default = i + 1
                     break
             country_column = st.selectbox(
-                "Kolumna z kodem kraju (alpha-3 → alpha-2)", country_options, index=country_default
+                "Kolumna z kodem kraju (alpha-3 → alpha-2)", country_options, index=country_default,
+                help="Kody krajów 3-literowe (ISO alpha-3) zostaną zamienione na 2-literowe (alpha-2, np. POL → PL) w nowej kolumnie obok. Auto-wykrywa kolumnę „OrigCountryRegionId”.",
             )
             country_col_idx = headers.index(country_column) + 1 if country_column != "— nie normalizuj —" else None
 

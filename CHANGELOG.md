@@ -1,5 +1,8 @@
 # CHANGELOG — FX_TOOL
 
+## 2026-06-13 (11)
+- **Ikonki pomocy „?" przy każdej opcji.** Po najechaniu myszką rozwija się opis działania funkcji (Streamlit `help=`). Dodane do: wyboru pliku, arkusza, kolumny z datami, waluty, źródła kursu (NBP/EBC), kolumny z kwotami, kolumny z kodem kraju. VAT, CN i ucinanie tekstu miały już opis.
+
 ## 2026-06-13 (10)
 - **Walidacja CN także dla kodów 10-cyfrowych (TARIC).** Dotychczas tylko 8 cyfr; 10-cyfrowe wpadały w „błędny format". Teraz kod 10-cyfrowy walidowany po **prefiksie 8 cyfr** (= kod CN wewnątrz TARIC). Nowe statusy informujące, że sprawdzono prefiks: `OK (10-cyfr → sprawdzono prefiks 8)` oraz `nieaktualny (10-cyfr → prefiks 8 poza edycją)`. Kody 8-cyfrowe bez zmian.
 - `normalize_cn`: uzupełnianie zgubionego przez Excel wiodącego zera rozszerzone na 10-cyfrowe (9 → 10, analogicznie do 7 → 8); float bez części ułamkowej (np. `84713000.0`) sprowadzany do int, by „.0" nie fałszowało liczby cyfr.
