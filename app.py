@@ -159,21 +159,53 @@ def load_cn_codes(year: int) -> frozenset:
 
 
 def normalize_cn(val) -> str:
-    """Kanoniczna postać kodu CN (8 cyfr jeśli się da). Excel gubi wiodące zero
-    przy kodach z rozdziałów 01-09 (01012100 -> liczba 1012100) — 7-cyfrowy uzupełniamy."""
+    """Kanoniczna postać kodu CN: 8 cyfr (CN) lub 10 cyfr (TARIC), jeśli się da.
+    Excel gubi wiodące zero przy kodach z rozdziałów 01-09 (01012100 -> liczba 1012100,
+    a 0102901000 -> 102901000) — 7-cyfrowy uzupełniamy do 8, 9-cyfrowy do 10.
+    Liczbę zmiennoprzecinkową bez części ułamkowej (np. 84713000.0) sprowadzamy do int,
+    by „.0" nie zafałszowało liczby cyfr."""
+    if isinstance(val, float) and val.is_integer():
+        val = int(val)
     digits = re.sub(r"\D", "", str(val)) if val is not None else ""
     if len(digits) == 7:
         digits = digits.zfill(8)
+    elif len(digits) == 9:
+        digits = digits.zfill(10)
     return digits
 
 
 def cn_status(code: str, valid_cn: frozenset):
-    """Status kanonicznego kodu: 'OK' / 'nieaktualny' / 'błędny format' / None (pusty)."""
+    """Status kanonicznego kodu. Możliwe zwroty:
+      None                                   - pusty
+      'OK'                                   - 8 cyfr (CN), w obowiązującej edycji
+      'OK (10-cyfr → sprawdzono prefiks 8)'  - 10 cyfr (TARIC), prefiks 8 cyfr w edycji
+      'nieaktualny'                          - 8 cyfr, poza edycją
+      'nieaktualny (10-cyfr → prefiks 8 poza edycją)' - 10 cyfr, prefiks poza edycją
+      'błędny format'                        - inna długość niż 8/10 cyfr
+    Dla kodu 10-cyfrowego walidujemy prefiks 8 cyfr (= kod CN wewnątrz kodu TARIC)."""
     if not code:
         return None
-    if len(code) != 8:
-        return "błędny format"
-    return "OK" if code in valid_cn else "nieaktualny"
+    if len(code) == 8:
+        return "OK" if code in valid_cn else "nieaktualny"
+    if len(code) == 10:
+        if code[:8] in valid_cn:
+            return "OK (10-cyfr → sprawdzono prefiks 8)"
+        return "nieaktualny (10-cyfr → prefiks 8 poza edycją)"
+    return "błędny format"
+
+
+def cn_is_valid(status) -> bool:
+    """Czy status oznacza kod NIE wymagający poprawy (pusty lub poprawny — też 10-cyfrowy).
+    Kontrakt: każdy status zaczynający się od 'OK' = poprawny (świadome sprzężenie
+    z etykietą; przy zmianie nazwy statusu OK trzeba zachować ten prefiks)."""
+    return status is None or status.startswith("OK")
+
+
+def cn_badge(status) -> str:
+    """Etykieta statusu z ikoną do UI (odporna na dowolny tekst statusu, też 10-cyfrowy)."""
+    if status == "poprawiony" or cn_is_valid(status):
+        return f"✅ {status}"
+    return f"❌ {status}"
 
 
 def cn_outcome(original, replacement, valid_cn: frozenset):
@@ -184,12 +216,15 @@ def cn_outcome(original, replacement, valid_cn: frozenset):
     - niepoprawny + zamiennik OK    -> ('poprawiony', zamiennik)
     - niepoprawny + zamiennik zły   -> (status zamiennika, ORYGINAŁ — złego zamiennika NIE zapisujemy)"""
     status = cn_status(normalize_cn(original), valid_cn)
-    if status in ("OK", None):
+    if cn_is_valid(status):
         return status, original
     if replacement is None or str(replacement).strip() == "":
         return status, original
     repl = str(replacement).strip()
-    if cn_status(normalize_cn(repl), valid_cn) == "OK":
+    repl_status = cn_status(normalize_cn(repl), valid_cn)
+    # zamiennik akceptujemy tylko jeśli sam jest poprawnym kodem (8 lub 10 cyfr);
+    # None = zamiennik bez cyfr/pusty → odrzucamy (cn_is_valid(None) jest True, stąd jawny warunek)
+    if repl_status is not None and cn_is_valid(repl_status):
         return "poprawiony", repl
     # zły zamiennik: zostaje oryginał i jego status (nie zapisujemy złego kodu)
     return status, original
@@ -615,7 +650,7 @@ if uploaded_file is not None:
                     break
             cn_column = st.selectbox(
                 f"Kolumna z kodem CN (walidacja wg CN {CN_EDITION_YEAR})", cn_options, index=cn_default,
-                help=f"Każdy kod CN sprawdzany względem obowiązującej edycji CN {CN_EDITION_YEAR}. Status w nowej kolumnie obok: OK / nieaktualny / błędny format.",
+                help=f"Każdy kod sprawdzany względem obowiązującej edycji CN {CN_EDITION_YEAR}. Kod 8-cyfrowy (CN) walidowany w całości; kod 10-cyfrowy (TARIC) — po prefiksie 8 cyfr. Status w nowej kolumnie obok: OK / nieaktualny / błędny format (z dopiskiem dla 10-cyfrowych).",
             )
             cn_col_idx = headers.index(cn_column) + 1 if cn_column != "— nie sprawdzaj —" else None
         if cn_col_idx and not VALID_CN:
@@ -640,7 +675,7 @@ if uploaded_file is not None:
                 continue
             code = normalize_cn(raw)
             status = cn_status(code, VALID_CN)
-            if status not in ("OK", None):
+            if not cn_is_valid(status):
                 entry = invalid.setdefault(code, {"count": 0, "status": status, "sample": raw})
                 entry["count"] += 1
 
@@ -659,7 +694,6 @@ if uploaded_file is not None:
                 h4.markdown("**Po poprawce**")
 
                 corrected = remaining = 0
-                badges = {"poprawiony": "✅ poprawiony", "nieaktualny": "❌ nieaktualny", "błędny format": "❌ błędny format"}
                 for code in sorted(invalid):
                     info = invalid[code]
                     c1, c2, c3, c4 = st.columns([3, 2, 3, 2])
@@ -672,7 +706,7 @@ if uploaded_file is not None:
                     status_now, _ = cn_outcome(code, repl, VALID_CN)
                     if repl and repl.strip():
                         cn_replacements[code] = repl.strip()
-                    c4.markdown(badges.get(status_now, status_now))
+                    c4.markdown(cn_badge(status_now))
                     if status_now == "poprawiony":
                         corrected += 1
                     else:

@@ -1,5 +1,10 @@
 # CHANGELOG — FX_TOOL
 
+## 2026-06-13 (10)
+- **Walidacja CN także dla kodów 10-cyfrowych (TARIC).** Dotychczas tylko 8 cyfr; 10-cyfrowe wpadały w „błędny format". Teraz kod 10-cyfrowy walidowany po **prefiksie 8 cyfr** (= kod CN wewnątrz TARIC). Nowe statusy informujące, że sprawdzono prefiks: `OK (10-cyfr → sprawdzono prefiks 8)` oraz `nieaktualny (10-cyfr → prefiks 8 poza edycją)`. Kody 8-cyfrowe bez zmian.
+- `normalize_cn`: uzupełnianie zgubionego przez Excel wiodącego zera rozszerzone na 10-cyfrowe (9 → 10, analogicznie do 7 → 8); float bez części ułamkowej (np. `84713000.0`) sprowadzany do int, by „.0" nie fałszowało liczby cyfr.
+- Refaktor spójności: jedna funkcja `cn_is_valid(status)` jako wspólna bramka „poprawny / nie" we wszystkich trzech miejscach (early-return `cn_outcome`, akceptacja zamiennika, lista niepoprawnych w UI) — UI i zapisany plik nie mogą się rozjechać. Zamiennik 10-cyfrowy też akceptowany.
+
 ## 2026-06-10 (9)
 - **Obsługa plików CSV** obok Excela. Uploader przyjmuje `xlsx` i `csv`. Wczytywanie CSV: auto-wykrywanie kodowania (`utf-8-sig` → `cp1250` → `latin-1`) i separatora (`;` / tab / `,`). Wartości konwertowane sensownie: czyste liczby → int, przecinek dziesiętny `1234,56` → float, **kody z wiodącym zerem zostają tekstem** (nie psuje CN/ID). Eksport: jeśli wejście było CSV → wynik też CSV (UTF-8 z BOM, separator dziesiętny dopasowany do separatora pól); jeśli Excel → po staremu xlsx. Bez nowych zależności (stdlib `csv`/`io`).
 
