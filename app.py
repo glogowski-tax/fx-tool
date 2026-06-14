@@ -331,6 +331,12 @@ def find_previous_rate(target_date: date, all_rates: dict[date, float]) -> tuple
     return None, None
 
 
+POLISH_MONTHS = {
+    1: "styczeń", 2: "luty", 3: "marzec", 4: "kwiecień", 5: "maj", 6: "czerwiec",
+    7: "lipiec", 8: "sierpień", 9: "wrzesień", 10: "październik", 11: "listopad", 12: "grudzień",
+}
+
+
 def penultimate_wednesday(year: int, month: int) -> date:
     """Przedostatnia środa danego miesiąca (NBP publikuje wtedy kurs celny)."""
     import calendar
@@ -407,7 +413,7 @@ def update_table_refs(ws, insert_col: int, col_name: str = ""):
         table.ref = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{max_row}"
 
 
-def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: str, amount_col_idx: int | None, progress_bar, country_col_idx: int | None = None, trim_multiline: bool = False, vat_col_idx: int | None = None, cn_col_idx: int | None = None, valid_cn: frozenset = frozenset(), cn_replacements: dict | None = None, currency_col_idx: int | None = None, rate_basis: str = "daily"):
+def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: str, amount_col_idx: int | None, progress_bar, country_col_idx: int | None = None, trim_multiline: bool = False, vat_col_idx: int | None = None, cn_col_idx: int | None = None, valid_cn: frozenset = frozenset(), cn_replacements: dict | None = None, currency_col_idx: int | None = None, rate_basis: str = "daily", fixed_ref_date: date | None = None):
     """Przetwarza arkusz — wstawia kolumny z kursami obok kolumny dat."""
     ws = wb[sheet_name]
     cn_replacements = cn_replacements or {}
@@ -479,14 +485,19 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: s
 
     customs = rate_basis == "monthly_customs"
 
-    # Wstaw kolumnę z kursem zaraz po kolumnie z datami
-    rate_col = col_idx + 1
+    # Kolumnę z kursem wstawiamy zaraz po kolumnie z datami; gdy dat brak
+    # (kurs celny + miesiąc z UI) — dopisujemy na końcu arkusza.
+    rate_col = (col_idx + 1) if col_idx is not None else (ws.max_column + 1)
     if customs:
         source_label = "kurs celny NBP"  # kurs celny zawsze z NBP (ECB nie publikuje kursu celnego)
     else:
         source_label = "kurs NBP" if source == "NBP" else "kurs EBC"
     # W trybie per-wiersz waluta jest różna w wierszach — nagłówek bez kodu waluty.
     rate_col_name = f"{source_label}/PLN" if per_row_currency else f"{source_label} {currency}/PLN"
+    # Kurs celny z miesiąca wybranego w UI — dopisz miesiąc obowiązywania do nagłówka.
+    if fixed_ref_date is not None:
+        target = (fixed_ref_date.replace(day=28) + timedelta(days=10)).replace(day=1)
+        rate_col_name += f" ({POLISH_MONTHS[target.month]} {target.year})"
     ws.insert_cols(rate_col)
     update_table_refs(ws, rate_col, rate_col_name)
     header_cell = ws.cell(row=1, column=rate_col, value=rate_col_name)
@@ -520,12 +531,13 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: s
     if total_rows <= 0:
         return wb
 
-    # Zbierz wszystkie daty z arkusza
+    # Zbierz wszystkie daty z arkusza (gdy jest kolumna z datami)
     all_dates = []
-    for row_num in range(2, ws.max_row + 1):
-        parsed = parse_date_value(ws.cell(row=row_num, column=col_idx).value)
-        if parsed:
-            all_dates.append(parsed)
+    if col_idx is not None:
+        for row_num in range(2, ws.max_row + 1):
+            parsed = parse_date_value(ws.cell(row=row_num, column=col_idx).value)
+            if parsed:
+                all_dates.append(parsed)
 
     progress_bar.progress(0.05, "Pobieram kursy z API...")
 
@@ -536,13 +548,20 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: s
     rates_by_currency = {}         # tryb per-wiersz: kod waluty -> {data: kurs}
     # ECB tylko dla kursu dziennego EUR; kurs celny zawsze z NBP
     use_ecb = (not customs) and source == "ECB"
-    if all_dates:
+    if fixed_ref_date is not None:
+        # kurs celny + miesiąc z UI: jeden kurs (przedostatnia środa) dla całego pliku
+        date_from, date_to = fixed_ref_date - timedelta(days=10), fixed_ref_date
+    elif all_dates:
         if customs:
             # zakres musi sięgać najwcześniejszej przedostatniej środy (kurs celny)
             date_from = min(customs_reference_date(d) for d in all_dates) - timedelta(days=10)
         else:
             date_from = min(all_dates) - timedelta(days=15)
         date_to = max(all_dates)
+    else:
+        date_from = date_to = None
+
+    if date_from is not None:
         if per_row_currency:
             currencies_needed = set()
             for row_num in range(2, ws.max_row + 1):
@@ -563,16 +582,20 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: s
 
     # Wstaw kursy do arkusza
     for i, row_num in enumerate(range(2, ws.max_row + 1)):
-        parsed_date = parse_date_value(ws.cell(row=row_num, column=col_idx).value)
+        parsed_date = parse_date_value(ws.cell(row=row_num, column=col_idx).value) if col_idx is not None else None
 
         # Ustal walutę i kurs dla wiersza
         row_cur = normalize_currency(ws.cell(row=row_num, column=currency_col_idx).value) if per_row_currency else currency
+        row_rates = rates_by_currency.get(row_cur, {}) if per_row_currency else all_rates
         if per_row_currency and row_cur is None:
             rate, rate_msg = None, "Nieznana waluta"
         elif row_cur == "PLN":
             rate, rate_msg = 1, None  # PLN/PLN = 1, niezależnie od daty
+        elif fixed_ref_date is not None:
+            # kurs celny + miesiąc z UI: ten sam kurs dla całego pliku (bez kolumny dat)
+            rate = rate_on_or_before(fixed_ref_date, row_rates)
+            rate_msg = None if rate is not None else "Brak kursu"
         elif parsed_date:
-            row_rates = rates_by_currency.get(row_cur, {}) if per_row_currency else all_rates
             if customs:
                 # kurs celny: ten sam dla całego miesiąca transakcji (przedostatnia środa M-1)
                 rate = rate_on_or_before(customs_reference_date(parsed_date), row_rates)
@@ -681,23 +704,6 @@ if uploaded_file is not None:
     st.dataframe(preview_data, use_container_width=True)
 
     # Wybór parametrów
-    col1, col2 = st.columns(2)
-
-    with col1:
-        date_column = st.selectbox(
-            "Wskaż kolumnę z datami", headers,
-            help="Data transakcji/faktury — na jej podstawie dobierany jest kurs (przy kursie dziennym z dnia poprzedzającego, przy kursie celnym z miesiąca tej daty). Kurs trafia do nowej kolumny wstawionej zaraz obok.",
-        )
-        col_idx = headers.index(date_column) + 1
-
-    with col2:
-        currency_mode = st.radio(
-            "Sposób doboru waluty",
-            ["Jedna waluta dla całego pliku", "Waluta z kolumny (per wiersz)"],
-            help="**Jedna waluta** — wszystkie kwoty w pliku są w tej samej walucie (wybierasz ją niżej). **Waluta z kolumny** — każdy wiersz może mieć inną walutę; wskazujesz kolumnę, z której odczytywany jest kod waluty (np. EUR, USD, PLN). PLN przelicza się kursem 1.",
-        )
-    per_row_currency = currency_mode.startswith("Waluta z kolumny")
-
     rate_basis_choice = st.radio(
         "Podstawa kursu",
         ["Kurs z dnia poprzedzającego (zasady VAT)", "Kurs celny — stały na miesiąc (zasady celne)"],
@@ -713,6 +719,53 @@ if uploaded_file is not None:
     )
     customs = rate_basis_choice.startswith("Kurs celny")
     rate_basis = "monthly_customs" if customs else "daily"
+
+    # W trybie celnym daty w pliku nie są wymagane — można wskazać miesiąc ręcznie.
+    month_from_ui = False
+    fixed_ref_date = None
+    if customs:
+        month_source = st.radio(
+            "Skąd miesiąc kursu celnego",
+            ["Z kolumny z datami (miesiąc każdej transakcji)", "Wybierz miesiąc ręcznie (plik bez dat)"],
+            horizontal=True,
+            help="**Z kolumny z datami** — dla każdego wiersza brany jest miesiąc jego daty (plik z kilku miesięcy → każdy swój kurs). **Wybierz miesiąc ręcznie** — jeden kurs celny dla całego pliku; kolumna z datami nie jest potrzebna (przydatne, gdy plik nie zawiera dat).",
+        )
+        month_from_ui = month_source.startswith("Wybierz")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if month_from_ui:
+            today = date.today()
+            mc1, mc2 = st.columns(2)
+            sel_month = mc1.selectbox(
+                "Miesiąc rozliczeniowy", list(range(1, 13)),
+                index=today.month - 1, format_func=lambda m: POLISH_MONTHS[m],
+                help="Miesiąc, dla którego ma obowiązywać kurs celny. Aplikacja użyje kursu z przedostatniej środy miesiąca POPRZEDNIEGO (tak ustala go NBP).",
+            )
+            years = list(range(today.year - 3, today.year + 2))
+            sel_year = mc2.selectbox("Rok", years, index=years.index(today.year))
+            fixed_ref_date = customs_reference_date(date(sel_year, sel_month, 1))
+            date_column = None
+            col_idx = None
+            st.caption(
+                f"Kurs celny na **{POLISH_MONTHS[sel_month]} {sel_year}** = kurs NBP z **{fixed_ref_date}** "
+                f"(przedostatnia środa miesiąca poprzedniego)."
+            )
+        else:
+            date_column = st.selectbox(
+                "Wskaż kolumnę z datami", headers,
+                help="Data transakcji/faktury — na jej podstawie dobierany jest kurs (przy kursie dziennym z dnia poprzedzającego, przy kursie celnym z miesiąca tej daty). Kurs trafia do nowej kolumny wstawionej zaraz obok.",
+            )
+            col_idx = headers.index(date_column) + 1
+
+    with col2:
+        currency_mode = st.radio(
+            "Sposób doboru waluty",
+            ["Jedna waluta dla całego pliku", "Waluta z kolumny (per wiersz)"],
+            help="**Jedna waluta** — wszystkie kwoty w pliku są w tej samej walucie (wybierasz ją niżej). **Waluta z kolumny** — każdy wiersz może mieć inną walutę; wskazujesz kolumnę, z której odczytywany jest kod waluty (np. EUR, USD, PLN). PLN przelicza się kursem 1.",
+        )
+    per_row_currency = currency_mode.startswith("Waluta z kolumny")
 
     col3, col4 = st.columns(2)
 
@@ -917,7 +970,13 @@ if uploaded_file is not None:
     source_label = "NBP" if source == "NBP" else "EBC"
     waluta_opis = f"waluty z kolumny **\"{currency_column}\"**" if per_row_currency else f"**{currency}/PLN**"
     pln_dopisek = "; **PLN** kursem 1" if per_row_currency else ""
-    if customs:
+    if customs and month_from_ui:
+        info_text = (
+            f"Do **wszystkich wierszy** zostanie zastosowany **kurs celny NBP** {waluta_opis} dla wybranego "
+            f"miesiąca (kurs z **{fixed_ref_date}** — przedostatnia środa miesiąca poprzedniego{pln_dopisek}). "
+            f"Kolumna z datami nie jest potrzebna. Kurs trafi do nowej kolumny dopisanej na końcu."
+        )
+    elif customs:
         info_text = (
             f"Dla każdego wiersza zostanie zastosowany **kurs celny NBP** {waluta_opis}: kurs ogłoszony w "
             f"**przedostatnią środę miesiąca poprzedzającego** miesiąc daty z kolumny **\"{date_column}\"** "
@@ -950,7 +1009,7 @@ if uploaded_file is not None:
     if st.button("Pobierz kursy i generuj plik", type="primary"):
         with st.spinner("Pobieram kursy walut..."):
             progress = st.progress(0)
-            wb = process_workbook(wb, sheet_name, col_idx, source, currency, amount_col_idx, progress, country_col_idx, trim_multiline, vat_col_idx, cn_col_idx, VALID_CN, cn_replacements, currency_col_idx, rate_basis)
+            wb = process_workbook(wb, sheet_name, col_idx, source, currency, amount_col_idx, progress, country_col_idx, trim_multiline, vat_col_idx, cn_col_idx, VALID_CN, cn_replacements, currency_col_idx, rate_basis, fixed_ref_date)
 
         st.success("Gotowe! Kursy zostały dodane.")
 

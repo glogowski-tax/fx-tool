@@ -1,5 +1,11 @@
 # CHANGELOG — FX_TOOL
 
+## 2026-06-14 (14)
+- **Kurs celny: wybór miesiąca z interfejsu (plik bez dat).** W trybie kursu celnego doszedł przełącznik „Skąd miesiąc kursu celnego": *Z kolumny z datami* (jak w (13)) albo *Wybierz miesiąc ręcznie*. Przy ręcznym wyborze wskazujesz miesiąc + rok, a kurs celny (przedostatnia środa miesiąca poprzedniego) stosowany jest do **wszystkich wierszy** — **kolumna z datami nie jest potrzebna** (główna zaleta kursu miesięcznego: plik wejściowy nie musi zawierać dat).
+  - Gdy brak kolumny dat, kolumna z kursem (+ „PLN przeliczone") jest **dopisywana na końcu** arkusza; nagłówek zawiera miesiąc obowiązywania, np. `kurs celny NBP EUR/PLN (czerwiec 2026)`.
+  - Działa łącznie z wyborem waluty (jedna / per-wiersz) i z PLN (kurs 1). `process_workbook` przyjmuje `fixed_ref_date`; `col_idx` może być `None`.
+  - Pod maską: stała `POLISH_MONTHS`, picker miesiąc/rok (domyślnie bieżący), podgląd „kurs na <miesiąc> = kurs NBP z <data>".
+
 ## 2026-06-14 (13)
 - **Kurs celny — stały na miesiąc (zasady celne).** Nowy przełącznik „Podstawa kursu": *Kurs z dnia poprzedzającego (zasady VAT)* — dotychczasowe działanie — albo *Kurs celny — stały na miesiąc (zasady celne)*. Intrastat dopuszcza obie metody (instrukcja GUS + rozporządzenie MF / UKC art. 53, 146).
   - Kurs celny = kurs NBP tabeli A z **przedostatniej środy miesiąca poprzedzającego** miesiąc transakcji; obowiązuje przez **cały miesiąc kalendarzowy**. Aplikacja dobiera go **per miesiąc daty transakcji** (plik obejmujący kilka miesięcy → każdy miesiąc swój kurs; plik jednomiesięczny → jeden kurs dla wszystkich wierszy).
