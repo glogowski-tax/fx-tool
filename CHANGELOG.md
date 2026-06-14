@@ -1,5 +1,13 @@
 # CHANGELOG — FX_TOOL
 
+## 2026-06-14 (13)
+- **Kurs celny — stały na miesiąc (zasady celne).** Nowy przełącznik „Podstawa kursu": *Kurs z dnia poprzedzającego (zasady VAT)* — dotychczasowe działanie — albo *Kurs celny — stały na miesiąc (zasady celne)*. Intrastat dopuszcza obie metody (instrukcja GUS + rozporządzenie MF / UKC art. 53, 146).
+  - Kurs celny = kurs NBP tabeli A z **przedostatniej środy miesiąca poprzedzającego** miesiąc transakcji; obowiązuje przez **cały miesiąc kalendarzowy**. Aplikacja dobiera go **per miesiąc daty transakcji** (plik obejmujący kilka miesięcy → każdy miesiąc swój kurs; plik jednomiesięczny → jeden kurs dla wszystkich wierszy).
+  - **Zawsze z NBP** — EBC nie publikuje kursu celnego (opcja źródła ECB ukryta w tym trybie). Działa też dla wielu walut (każda ma kurs z tej samej środy) i z PLN (kurs 1). Nagłówek kolumny: `kurs celny NBP …/PLN`.
+  - Jeśli przedostatnia środa była dniem wolnym (brak notowania) — kurs z ostatniego dnia roboczego przed nią (`rate_on_or_before`).
+  - Weryfikacja na żywych danych: kurs celny czerwca 2026 (EUR 4,2546 / USD 3,6709 / GBP 4,9126) = NBP tab. A z 2026-05-20. Zgodne.
+  - **Znane ograniczenie (świadome):** nie obsługujemy wyjątku UKC o korekcie kursu w trakcie miesiąca przy wahaniach ≥5% (art. 146 UKC-RW) — rzadki przypadek; kurs traktujemy jako stały na cały miesiąc.
+
 ## 2026-06-14 (12)
 - **Waluta z kolumny (per wiersz).** Nowy przełącznik „Sposób doboru waluty": *Jedna waluta dla całego pliku* (dotychczasowe działanie) lub *Waluta z kolumny (per wiersz)* — wskazujesz kolumnę z kodem/nazwą waluty i dla **każdego wiersza** kurs dobierany jest wg jego waluty. Kolumna z walutą auto-wykrywana (nazwa zawiera „waluta"/„currency").
   - `normalize_currency()` rozpoznaje kody ISO (EUR, USD…) i częste nazwy PL/EN (`euro`, `dolar`, `funt`, `frank`, `zł`…); nierozpoznane → status **„Nieznana waluta"** (wiersz bez przeliczenia, bez crasha).
