@@ -76,6 +76,37 @@ def normalize_country_code(val):
     return ISO_A3_TO_A2.get(code, val)
 
 
+# Aliasy nazw walut (poza kodami ISO z CURRENCIES) → kod ISO. Klucze WIELKIMI literami,
+# bez spacji wiodących. Obsługa częstych form PL/EN spotykanych w plikach klientów.
+CURRENCY_ALIASES = {
+    "EURO": "EUR", "EUROS": "EUR", "€": "EUR",
+    "DOLAR": "USD", "DOLAR AMERYKAŃSKI": "USD", "DOLAR USA": "USD",
+    "DOLLAR": "USD", "US DOLLAR": "USD", "USD$": "USD", "$": "USD",
+    "FUNT": "GBP", "FUNT SZTERLING": "GBP", "FUNT BRYTYJSKI": "GBP",
+    "POUND": "GBP", "£": "GBP",
+    "FRANK": "CHF", "FRANK SZWAJCARSKI": "CHF", "SWISS FRANC": "CHF",
+    "KORONA CZESKA": "CZK", "KORONA DUŃSKA": "DKK", "KORONA NORWESKA": "NOK",
+    "KORONA SZWEDZKA": "SEK",
+    "FORINT": "HUF", "LEJ": "RON", "LEJ RUMUŃSKI": "RON",
+    "HRYWNA": "UAH", "LIRA": "TRY", "LIRA TURECKA": "TRY",
+    "JEN": "JPY", "YEN": "JPY", "YUAN": "CNY", "JUAN": "CNY", "RENMINBI": "CNY",
+    "ZŁOTY": "PLN", "ZLOTY": "PLN", "ZŁ": "PLN", "ZL": "PLN", "PLN": "PLN",
+}
+
+
+def normalize_currency(val):
+    """Sprowadza wartość komórki do kodu waluty ISO (np. 'eur' / 'euro' → 'EUR').
+    PLN rozpoznaje (kurs 1, brak zapytania do API). Puste / nieznane → None."""
+    if val is None:
+        return None
+    code = str(val).strip().upper()
+    if code == "":
+        return None
+    if code in CURRENCIES or code == "PLN":
+        return code
+    return CURRENCY_ALIASES.get(code)
+
+
 def first_line_only(val):
     """Jeśli komórka zawiera złamanie linii (Alt+Enter), zwraca tylko pierwszą linię.
     Pozostałe wartości zwraca bez zmian."""
@@ -349,7 +380,7 @@ def update_table_refs(ws, insert_col: int, col_name: str = ""):
         table.ref = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{max_row}"
 
 
-def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: str, amount_col_idx: int | None, progress_bar, country_col_idx: int | None = None, trim_multiline: bool = False, vat_col_idx: int | None = None, cn_col_idx: int | None = None, valid_cn: frozenset = frozenset(), cn_replacements: dict | None = None):
+def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: str, amount_col_idx: int | None, progress_bar, country_col_idx: int | None = None, trim_multiline: bool = False, vat_col_idx: int | None = None, cn_col_idx: int | None = None, valid_cn: frozenset = frozenset(), cn_replacements: dict | None = None, currency_col_idx: int | None = None):
     """Przetwarza arkusz — wstawia kolumny z kursami obok kolumny dat."""
     ws = wb[sheet_name]
     cn_replacements = cn_replacements or {}
@@ -364,7 +395,7 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: s
     # Kolumny pochodne (kod kraju ISO-2, kod kraju z VAT) wstawiamy PRZED kolumnami
     # z kursami. Wspólny helper koryguje WSZYSTKIE śledzone indeksy po każdym
     # wstawieniu — to eliminuje ciche błędy przesunięcia kolumn (4 wstawienia).
-    idx = {"date": col_idx, "amount": amount_col_idx, "country": country_col_idx, "vat": vat_col_idx, "cn": cn_col_idx}
+    idx = {"date": col_idx, "amount": amount_col_idx, "country": country_col_idx, "vat": vat_col_idx, "cn": cn_col_idx, "currency": currency_col_idx}
 
     def insert_derived_column(src_key, transform, header_suffix, default_header):
         src = idx[src_key]
@@ -416,24 +447,30 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: s
 
     col_idx = idx["date"]
     amount_col_idx = idx["amount"]
+    currency_col_idx = idx["currency"]
+    per_row_currency = currency_col_idx is not None
 
     # Wstaw kolumnę z kursem zaraz po kolumnie z datami
     rate_col = col_idx + 1
     source_label = "kurs NBP" if source == "NBP" else "kurs EBC"
-    rate_col_name = f"{source_label} {currency}/PLN"
+    # W trybie per-wiersz waluta jest różna w wierszach — nagłówek bez kodu waluty.
+    rate_col_name = f"{source_label}/PLN" if per_row_currency else f"{source_label} {currency}/PLN"
     ws.insert_cols(rate_col)
     update_table_refs(ws, rate_col, rate_col_name)
-    header_cell = ws.cell(row=1, column=rate_col, value=f"{source_label} {currency}/PLN")
+    header_cell = ws.cell(row=1, column=rate_col, value=rate_col_name)
     header_cell.fill = HIGHLIGHT_HEADER
     header_cell.font = HEADER_FONT
+
+    # Korekta indeksów kolumn położonych za wstawioną kolumną kursu
+    if amount_col_idx is not None and amount_col_idx >= rate_col:
+        amount_col_idx += 1
+    if currency_col_idx is not None and currency_col_idx >= rate_col:
+        currency_col_idx += 1
 
     new_cols = [rate_col]
 
     pln_col = None
     if amount_col_idx is not None:
-        # Skoryguj indeks kolumny kwot jeśli jest za wstawioną kolumną
-        if amount_col_idx >= rate_col:
-            amount_col_idx += 1
         pln_col = rate_col + 1
         ws.insert_cols(pln_col)
         update_table_refs(ws, pln_col, "PLN przeliczone")
@@ -441,9 +478,11 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: s
         pln_header.fill = HIGHLIGHT_HEADER
         pln_header.font = HEADER_FONT
         new_cols.append(pln_col)
-        # Skoryguj ponownie jeśli kolumna kwot jest za drugą wstawioną
+        # Skoryguj ponownie indeksy jeśli są za drugą wstawioną kolumną
         if amount_col_idx >= pln_col:
             amount_col_idx += 1
+        if currency_col_idx is not None and currency_col_idx >= pln_col:
+            currency_col_idx += 1
 
     total_rows = ws.max_row - 1
     if total_rows <= 0:
@@ -458,45 +497,64 @@ def process_workbook(wb, sheet_name: str, col_idx: int, source: str, currency: s
 
     progress_bar.progress(0.05, "Pobieram kursy z API...")
 
-    # Pobierz wszystkie kursy hurtowo (jeden zakres dat, 1 zapytanie)
+    # Pobierz kursy hurtowo dla jednego zakresu dat.
+    # Tryb per-wiersz: jedno zapytanie na KAŻDĄ napotkaną walutę (PLN pomijamy — kurs 1).
+    # Tryb jednej waluty: jedno zapytanie dla wybranej waluty.
+    all_rates = {}                 # tryb jednej waluty
+    rates_by_currency = {}         # tryb per-wiersz: kod waluty -> {data: kurs}
     if all_dates:
         date_from = min(all_dates) - timedelta(days=15)
         date_to = max(all_dates)
-        if source == "NBP":
+        if per_row_currency:
+            currencies_needed = set()
+            for row_num in range(2, ws.max_row + 1):
+                cur = normalize_currency(ws.cell(row=row_num, column=currency_col_idx).value)
+                if cur and cur != "PLN":
+                    currencies_needed.add(cur)
+            for cur in currencies_needed:
+                # ECB tylko dla EUR; pozostałe waluty zawsze z NBP
+                if cur == "EUR" and source == "ECB":
+                    rates_by_currency[cur] = fetch_ecb_rates(date_from, date_to)
+                else:
+                    rates_by_currency[cur] = fetch_nbp_rates(date_from, date_to, cur)
+        elif source == "NBP":
             all_rates = fetch_nbp_rates(date_from, date_to, currency)
         else:
             all_rates = fetch_ecb_rates(date_from, date_to)
-    else:
-        all_rates = {}
 
     progress_bar.progress(0.3, "Wstawiam kursy do arkusza...")
 
     # Wstaw kursy do arkusza
     for i, row_num in enumerate(range(2, ws.max_row + 1)):
-        cell_value = ws.cell(row=row_num, column=col_idx).value
-        parsed_date = parse_date_value(cell_value)
+        parsed_date = parse_date_value(ws.cell(row=row_num, column=col_idx).value)
 
-        if parsed_date:
-            rate, rate_date = find_previous_rate(parsed_date, all_rates)
-            if rate is not None:
-                ws.cell(row=row_num, column=rate_col, value=rate)
-                # Przelicz kwotę na PLN
-                if pln_col and amount_col_idx:
-                    amount = ws.cell(row=row_num, column=amount_col_idx).value
-                    if isinstance(amount, (int, float)):
-                        pln_value = round(amount * rate)
-                        pln_cell = ws.cell(row=row_num, column=pln_col, value=pln_value)
-                        pln_cell.number_format = "0"
-                    else:
-                        ws.cell(row=row_num, column=pln_col, value="Brak kwoty")
-            else:
-                ws.cell(row=row_num, column=rate_col, value="Brak kursu")
-                if pln_col:
-                    ws.cell(row=row_num, column=pln_col, value="Brak kursu")
+        # Ustal walutę i kurs dla wiersza
+        row_cur = normalize_currency(ws.cell(row=row_num, column=currency_col_idx).value) if per_row_currency else currency
+        if per_row_currency and row_cur is None:
+            rate, rate_msg = None, "Nieznana waluta"
+        elif row_cur == "PLN":
+            rate, rate_msg = 1, None  # PLN/PLN = 1, niezależnie od daty
+        elif parsed_date:
+            row_rates = rates_by_currency.get(row_cur, {}) if per_row_currency else all_rates
+            rate, _ = find_previous_rate(parsed_date, row_rates)
+            rate_msg = None if rate is not None else "Brak kursu"
         else:
-            ws.cell(row=row_num, column=rate_col, value="Błędna data")
+            rate, rate_msg = None, "Błędna data"
+
+        if rate is not None:
+            ws.cell(row=row_num, column=rate_col, value=rate)
+            # Przelicz kwotę na PLN
+            if pln_col and amount_col_idx:
+                amount = ws.cell(row=row_num, column=amount_col_idx).value
+                if isinstance(amount, (int, float)):
+                    pln_cell = ws.cell(row=row_num, column=pln_col, value=round(amount * rate))
+                    pln_cell.number_format = "0"
+                else:
+                    ws.cell(row=row_num, column=pln_col, value="Brak kwoty")
+        else:
+            ws.cell(row=row_num, column=rate_col, value=rate_msg)
             if pln_col:
-                ws.cell(row=row_num, column=pln_col, value="Błędna data")
+                ws.cell(row=row_num, column=pln_col, value=rate_msg)
 
         # Highlight nowych kolumn
         for c in new_cols:
@@ -592,17 +650,47 @@ if uploaded_file is not None:
         col_idx = headers.index(date_column) + 1
 
     with col2:
-        currency_options = [f"{code} — {name}" for code, name in CURRENCIES.items()]
-        currency_choice = st.selectbox(
-            "Waluta", currency_options,
-            help="Waluta, której kurs do PLN zostanie pobrany. Dla **EUR** możesz wybrać źródło NBP lub EBC; pozostałe waluty zawsze z NBP.",
+        currency_mode = st.radio(
+            "Sposób doboru waluty",
+            ["Jedna waluta dla całego pliku", "Waluta z kolumny (per wiersz)"],
+            help="**Jedna waluta** — wszystkie kwoty w pliku są w tej samej walucie (wybierasz ją niżej). **Waluta z kolumny** — każdy wiersz może mieć inną walutę; wskazujesz kolumnę, z której odczytywany jest kod waluty (np. EUR, USD, PLN). PLN przelicza się kursem 1.",
         )
-        currency = currency_choice.split(" — ")[0]
+    per_row_currency = currency_mode.startswith("Waluta z kolumny")
 
     col3, col4 = st.columns(2)
 
     with col3:
-        if currency == "EUR":
+        if per_row_currency:
+            currency_col_options = headers
+            # Auto-wykryj kolumnę z walutą (nazwa zawiera "waluta"/"currency"/"ccy")
+            currency_col_default = 0
+            for i, h in enumerate(headers):
+                hl = h.strip().lower()
+                if "waluta" in hl or "currency" in hl or hl in ("ccy", "cur", "kod waluty"):
+                    currency_col_default = i
+                    break
+            currency_column = st.selectbox(
+                "Kolumna z walutą", currency_col_options, index=currency_col_default,
+                help="Kolumna zawierająca kod/nazwę waluty dla każdego wiersza (EUR, USD, eur, euro, PLN...). Dla każdego wiersza kurs dobierany jest wg tej waluty. Nierozpoznane wartości → „Nieznana waluta”. PLN → kurs 1.",
+            )
+            currency_col_idx = headers.index(currency_column) + 1
+            currency = "EUR"  # nieużywane w trybie per-wiersz (placeholder)
+        else:
+            currency_options = [f"{code} — {name}" for code, name in CURRENCIES.items()]
+            currency_choice = st.selectbox(
+                "Waluta", currency_options,
+                help="Waluta, której kurs do PLN zostanie pobrany. Dla **EUR** możesz wybrać źródło NBP lub EBC; pozostałe waluty zawsze z NBP.",
+            )
+            currency = currency_choice.split(" — ")[0]
+            currency_col_idx = None
+
+    with col4:
+        if per_row_currency:
+            source = st.radio(
+                "Źródło kursu (dotyczy EUR)", ["NBP", "ECB"], horizontal=True,
+                help="W trybie per-wiersz wybór źródła dotyczy **tylko wierszy w EUR**; pozostałe waluty zawsze z NBP. **NBP** — tabela A. **ECB/EBC** — kursy referencyjne Europejskiego Banku Centralnego.",
+            )
+        elif currency == "EUR":
             source = st.radio(
                 "Źródło kursu", ["NBP", "ECB"], horizontal=True,
                 help="**NBP** — tabela A Narodowego Banku Polskiego. **ECB/EBC** — kursy referencyjne Europejskiego Banku Centralnego. Wybór dotyczy wyłącznie EUR.",
@@ -611,13 +699,40 @@ if uploaded_file is not None:
             source = "NBP"
             st.info("Źródło: **NBP** (EBC dostępne tylko dla EUR)")
 
-    with col4:
-        amount_options = ["— nie przeliczaj —"] + headers
-        amount_column = st.selectbox(
-            f"Kolumna z kwotami ({currency})", amount_options,
-            help=f"Kwoty w {currency} z tej kolumny zostaną przeliczone na PLN po pobranym kursie (zaokrąglone do pełnych złotych) i wpisane w nowej kolumnie obok. „— nie przeliczaj —” = tylko wstaw kurs, bez przeliczania kwot.",
-        )
-        amount_col_idx = headers.index(amount_column) + 1 if amount_column != "— nie przeliczaj —" else None
+    amount_label = "waluta z kolumny" if per_row_currency else currency
+    amount_options = ["— nie przeliczaj —"] + headers
+    amount_column = st.selectbox(
+        f"Kolumna z kwotami ({amount_label})", amount_options,
+        help=f"Kwoty ({amount_label}) z tej kolumny zostaną przeliczone na PLN po pobranym kursie (zaokrąglone do pełnych złotych) i wpisane w nowej kolumnie obok. „— nie przeliczaj —” = tylko wstaw kurs, bez przeliczania kwot.",
+    )
+    amount_col_idx = headers.index(amount_column) + 1 if amount_column != "— nie przeliczaj —" else None
+
+    # ---- Pre-skan wykrytych walut (tylko tryb per-wiersz) ----
+    if per_row_currency:
+        ws_cur = wb[sheet_name]
+        found_cur = {}      # rozpoznany kod -> liczność
+        unknown_cur = {}    # surowa wartość -> liczność
+        for r in range(2, ws_cur.max_row + 1):
+            raw = ws_cur.cell(row=r, column=currency_col_idx).value
+            if raw is None or str(raw).strip() == "":
+                continue
+            code = normalize_currency(raw)
+            if code:
+                found_cur[code] = found_cur.get(code, 0) + 1
+            else:
+                key = str(raw).strip()
+                unknown_cur[key] = unknown_cur.get(key, 0) + 1
+        with st.container(border=True):
+            if found_cur:
+                summary = " · ".join(f"{c} ({n}×)" for c, n in sorted(found_cur.items()))
+                st.markdown(f"**Wykryte waluty w kolumnie „{currency_column}”:** {summary}")
+            if unknown_cur:
+                u = " · ".join(f"„{k}” ({n}×)" for k, n in sorted(unknown_cur.items()))
+                st.warning(f"⚠️ Nierozpoznane wartości: {u} — te wiersze dostaną status „Nieznana waluta” (bez przeliczenia).")
+            elif found_cur:
+                st.success("Wszystkie wartości w kolumnie waluty zostały rozpoznane.")
+            else:
+                st.info("Kolumna waluty jest pusta.")
 
     # ---- Sekcja specyficzna dla klienta: Fluiconnecto ----
     st.markdown("")
@@ -740,10 +855,17 @@ if uploaded_file is not None:
 
     # Info
     source_label = "NBP" if source == "NBP" else "EBC"
-    info_text = (
-        f"Kurs **{currency}/PLN** z **ostatniego dnia roboczego przed datą** w kolumnie **\"{date_column}\"** "
-        f"zostanie pobrany z **{source_label}** i wstawiony w nowej kolumnie obok."
-    )
+    if per_row_currency:
+        info_text = (
+            f"Dla każdego wiersza zostanie pobrany kurs waluty z kolumny **\"{currency_column}\"** względem PLN "
+            f"z **ostatniego dnia roboczego przed datą** w kolumnie **\"{date_column}\"** (EUR z **{source_label}**, "
+            f"pozostałe z NBP; **PLN** kursem 1). Kurs trafi do nowej kolumny obok."
+        )
+    else:
+        info_text = (
+            f"Kurs **{currency}/PLN** z **ostatniego dnia roboczego przed datą** w kolumnie **\"{date_column}\"** "
+            f"zostanie pobrany z **{source_label}** i wstawiony w nowej kolumnie obok."
+        )
     if amount_col_idx:
         info_text += f"\n\nKwoty z kolumny **\"{amount_column}\"** zostaną przeliczone na PLN (zaokrąglone do pełnych złotych)."
     if country_col_idx:
@@ -760,7 +882,7 @@ if uploaded_file is not None:
     if st.button("Pobierz kursy i generuj plik", type="primary"):
         with st.spinner("Pobieram kursy walut..."):
             progress = st.progress(0)
-            wb = process_workbook(wb, sheet_name, col_idx, source, currency, amount_col_idx, progress, country_col_idx, trim_multiline, vat_col_idx, cn_col_idx, VALID_CN, cn_replacements)
+            wb = process_workbook(wb, sheet_name, col_idx, source, currency, amount_col_idx, progress, country_col_idx, trim_multiline, vat_col_idx, cn_col_idx, VALID_CN, cn_replacements, currency_col_idx)
 
         st.success("Gotowe! Kursy zostały dodane.")
 

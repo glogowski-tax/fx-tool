@@ -1,5 +1,12 @@
 # CHANGELOG — FX_TOOL
 
+## 2026-06-14 (12)
+- **Waluta z kolumny (per wiersz).** Nowy przełącznik „Sposób doboru waluty": *Jedna waluta dla całego pliku* (dotychczasowe działanie) lub *Waluta z kolumny (per wiersz)* — wskazujesz kolumnę z kodem/nazwą waluty i dla **każdego wiersza** kurs dobierany jest wg jego waluty. Kolumna z walutą auto-wykrywana (nazwa zawiera „waluta"/„currency").
+  - `normalize_currency()` rozpoznaje kody ISO (EUR, USD…) i częste nazwy PL/EN (`euro`, `dolar`, `funt`, `frank`, `zł`…); nierozpoznane → status **„Nieznana waluta"** (wiersz bez przeliczenia, bez crasha).
+  - **PLN** obsłużone specjalnie: kurs 1, kwota PLN = kwota oryginalna, bez zapytania do API (NBP nie ma endpointu PLN/PLN).
+  - Kursy pobierane **hurtowo, jedno zapytanie na każdą napotkaną walutę** (nie per wiersz). **ECB tylko dla EUR** — w trybie per-wiersz wybór źródła dotyczy wyłącznie wierszy w EUR, pozostałe zawsze z NBP. Nagłówek kolumny kursu bez kodu waluty (`kurs NBP/PLN`).
+  - **Pre-skan** przed generowaniem: lista wykrytych walut z licznościami i ostrzeżenie o nierozpoznanych wartościach (wzorowane na skanie kodów CN).
+
 ## 2026-06-13 (11)
 - **Ikonki pomocy „?" przy każdej opcji.** Po najechaniu myszką rozwija się opis działania funkcji (Streamlit `help=`). Dodane do: wyboru pliku, arkusza, kolumny z datami, waluty, źródła kursu (NBP/EBC), kolumny z kwotami, kolumny z kodem kraju. VAT, CN i ucinanie tekstu miały już opis.
 
