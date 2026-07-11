@@ -825,6 +825,8 @@ if uploaded_file is not None:
         ws_cur = wb[sheet_name]
         found_cur = {}      # rozpoznany kod -> liczność
         unknown_cur = {}    # surowa wartość -> liczność
+        unknown_total = 0   # łączna liczba wierszy z nierozpoznaną wartością
+        date_like = 0       # ile z nierozpoznanych wygląda na datę (RRRRMMDD itp.)
         for r in range(2, ws_cur.max_row + 1):
             raw = ws_cur.cell(row=r, column=currency_col_idx).value
             if raw is None or str(raw).strip() == "":
@@ -835,10 +837,27 @@ if uploaded_file is not None:
             else:
                 key = str(raw).strip()
                 unknown_cur[key] = unknown_cur.get(key, 0) + 1
+                unknown_total += 1
+                if parse_date_value(raw) is not None:
+                    date_like += 1
+        # Czy wybrana kolumna to prawdopodobnie DATY, a nie waluty?
+        # (brak rozpoznanych walut, a większość nierozpoznanych parsuje się jako data)
+        looks_like_dates = (
+            not found_cur and unknown_total > 0 and date_like / unknown_total >= 0.8
+        )
         with st.container(border=True):
             if found_cur:
                 summary = " · ".join(f"{c} ({n}×)" for c, n in sorted(found_cur.items()))
                 st.markdown(f"**Wykryte waluty w kolumnie „{currency_column}”:** {summary}")
+            if looks_like_dates:
+                st.error(
+                    f"🛑 Kolumna **„{currency_column}”** wygląda na kolumnę z **datami** "
+                    f"(format RRRRMMDD), a nie z walutami — {date_like} z {unknown_total} wartości "
+                    f"to daty. Prawdopodobnie wskazano złą kolumnę.\n\n"
+                    f"➡️ Jeśli wszystkie kwoty są w jednej walucie (np. EUR), przełącz tryb na "
+                    f"**„Jedna waluta dla całego pliku”**. Tryb **„Waluta z kolumny (per wiersz)”** "
+                    f"ma sens tylko gdy plik faktycznie ma kolumnę z kodem waluty (EUR, USD, PLN…)."
+                )
             if unknown_cur:
                 u = " · ".join(f"„{k}” ({n}×)" for k, n in sorted(unknown_cur.items()))
                 st.warning(f"⚠️ Nierozpoznane wartości: {u} — te wiersze dostaną status „Nieznana waluta” (bez przeliczenia).")

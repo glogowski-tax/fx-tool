@@ -1,5 +1,10 @@
 # CHANGELOG — FX_TOOL
 
+## 2026-07-10 (15)
+- **Wykrywanie kolumny z datami wskazanej jako waluta (per-wiersz).** W trybie „Waluta z kolumny (per wiersz)" pre-skan sprawdza teraz, czy wskazana kolumna to przypadkiem **daty** zamiast walut. Jeśli **żadna** wartość nie jest rozpoznaną walutą, a **≥80%** nierozpoznanych parsuje się jako data (`parse_date_value` — m.in. RRRRMMDD typu `20260601`), pokazuje **czerwony błąd** „Kolumna wygląda na daty, nie waluty — przełącz na tryb *Jedna waluta dla całego pliku*".
+  - Kontekst: francuski DEB (`DEB 06 2026 PL.xlsx`) nie ma kolumny waluty (wszystko w EUR); użytkownik wskazał kolumnę „Date de livraison plannifiée", a tool po cichu oznaczał 3030 wierszy jako „Nieznana waluta". Teraz komunikat od razu kieruje do właściwego trybu.
+  - Zwykłe ostrzeżenie o nierozpoznanych wartościach (żółte) zostaje bez zmian — nowy błąd pojawia się dodatkowo, ponad nim, tylko dla przypadku „to są daty".
+
 ## 2026-06-14 (14)
 - **Kurs celny: wybór miesiąca z interfejsu (plik bez dat).** W trybie kursu celnego doszedł przełącznik „Skąd miesiąc kursu celnego": *Z kolumny z datami* (jak w (13)) albo *Wybierz miesiąc ręcznie*. Przy ręcznym wyborze wskazujesz miesiąc + rok, a kurs celny (przedostatnia środa miesiąca poprzedniego) stosowany jest do **wszystkich wierszy** — **kolumna z datami nie jest potrzebna** (główna zaleta kursu miesięcznego: plik wejściowy nie musi zawierać dat).
   - Gdy brak kolumny dat, kolumna z kursem (+ „PLN przeliczone") jest **dopisywana na końcu** arkusza; nagłówek zawiera miesiąc obowiązywania, np. `kurs celny NBP EUR/PLN (czerwiec 2026)`.
